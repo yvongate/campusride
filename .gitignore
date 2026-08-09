@@ -1,0 +1,18 @@
+# Ce depot ne garde que le code des 3 apps (front_mobile, front_web, back) --
+# tout le reste (BMAD, maquettes, cahier des charges, config d'outils/IDE)
+# n'a rien a voir avec ce qu'on heberge et reste hors du depot.
+_bmad/
+_bmad-output/
+docs/
+UI_inspo/
+BMAD.md
+CahierDesCharges_*
+
+# Config d'outils/IDE (Claude Code, Windsurf, agents) -- a n'importe quel
+# niveau (racine ou a l'interieur d'une app), jamais du code applicatif.
+**/.agents/
+**/.claude/
+**/.windsurf/
+
+# Chaque app garde par ailleurs son propre .gitignore (node_modules, .env,
+# dist, .expo, etc.) -- celui-ci ne couvre que ce qui est commun aux 3.

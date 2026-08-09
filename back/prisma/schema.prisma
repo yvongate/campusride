@@ -1,0 +1,203 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Utilisateur {
+  id                  String                 @id @default(cuid())
+  nom                 String?
+  prenom              String?
+  telephone           String?                @unique
+  email               String?                @unique
+  passwordHash        String?
+  role                String                 @default("etudiant")
+  note                Float?
+  actif               Boolean                @default(true)
+  createdAt           DateTime               @default(now())
+  documentsConducteur DocumentsConducteur[]
+  trajets             Trajet[]
+  reservations        Reservation[]
+  demandes            Demande[]
+  participations      Participation[]
+  messages            Message[]
+  notationsDonnees    Notation[]             @relation("NotationsDonnees")
+  notationsRecues     Notation[]             @relation("NotationsRecues")
+  signalementsEmis    Signalement[]          @relation("SignalementsEmis")
+  signalementsRecus   Signalement[]          @relation("SignalementsRecus")
+}
+
+model DocumentsConducteur {
+  id                String      @id @default(cuid())
+  userId            String
+  utilisateur       Utilisateur @relation(fields: [userId], references: [id])
+  selfie            String
+  photoPermis       String
+  matriculeVehicule String
+  photoVehicule     String?
+  motBienvenue      String?
+  statut            String      @default("en attente")
+  createdAt         DateTime    @default(now())
+}
+
+model Universite {
+  id        String   @id @default(cuid())
+  nom       String
+  commune   String
+  latitude  Float
+  longitude Float
+  createdAt DateTime @default(now())
+  trajets   Trajet[]
+  demandes  Demande[]
+}
+
+model Commune {
+  id        String     @id @default(cuid())
+  nom       String
+  ville     String
+  createdAt DateTime   @default(now())
+  quartiers Quartier[]
+  demandes  Demande[]
+}
+
+model Quartier {
+  id            String         @id @default(cuid())
+  nom           String
+  communeId     String
+  commune       Commune        @relation(fields: [communeId], references: [id])
+  createdAt     DateTime       @default(now())
+  pointsInteret PointInteret[]
+  demandes      Demande[]
+}
+
+model PointInteret {
+  id         String   @id @default(cuid())
+  nom        String
+  type       String
+  quartierId String
+  quartier   Quartier @relation(fields: [quartierId], references: [id])
+  latitude   Float
+  longitude  Float
+  createdAt  DateTime @default(now())
+  trajets    Trajet[]
+  demandes   Demande[]
+}
+
+model Trajet {
+  id           String       @id @default(cuid())
+  conducteurId String
+  conducteur   Utilisateur  @relation(fields: [conducteurId], references: [id])
+  universiteId String
+  universite   Universite   @relation(fields: [universiteId], references: [id])
+  pointDeRdvId String
+  pointDeRdv   PointInteret @relation(fields: [pointDeRdvId], references: [id])
+  heure        DateTime
+  places       Int
+  prixTotal    Float
+  mode         String       @default("B")
+  statut       String       @default("ouvert")
+  rappel2hEnvoye Boolean    @default(false)
+  rappel1hEnvoye Boolean    @default(false)
+  createdAt    DateTime     @default(now())
+  reservations Reservation[]
+  messages     Message[]
+  notations    Notation[]
+  signalements Signalement[]
+  demande      Demande?
+}
+
+model Reservation {
+  id              String      @id @default(cuid())
+  trajetId        String
+  trajet          Trajet      @relation(fields: [trajetId], references: [id])
+  passagerId      String
+  passager        Utilisateur @relation(fields: [passagerId], references: [id])
+  prixParPersonne Float
+  statut          String      @default("confirmee")
+  createdAt       DateTime    @default(now())
+}
+
+model Demande {
+  id                String          @id @default(cuid())
+  createurId        String
+  createur          Utilisateur     @relation(fields: [createurId], references: [id])
+  universiteId      String
+  universite        Universite      @relation(fields: [universiteId], references: [id])
+  communeId         String
+  commune           Commune         @relation(fields: [communeId], references: [id])
+  quartierId        String?
+  quartier          Quartier?       @relation(fields: [quartierId], references: [id])
+  poiId             String?
+  poi               PointInteret?   @relation(fields: [poiId], references: [id])
+  heure             DateTime
+  placesRecherchees Int
+  cotisation        Float
+  statut            String          @default("ouverte")
+  createdAt         DateTime        @default(now())
+  participations    Participation[]
+  // Renseigne uniquement quand accepterDemande cree le Trajet correspondant
+  // (statut "acceptee") -- necessaire pour que l'ecran "Point de
+  // regroupement" cote front_mobile puisse retrouver le conducteur qui a
+  // accepte, aucune autre relation ne permet de relier Demande -> Trajet.
+  trajetId          String?         @unique
+  trajet            Trajet?         @relation(fields: [trajetId], references: [id])
+}
+
+model Participation {
+  id          String      @id @default(cuid())
+  demandeId   String
+  demande     Demande     @relation(fields: [demandeId], references: [id])
+  userId      String
+  utilisateur Utilisateur @relation(fields: [userId], references: [id])
+  positionLat Float
+  positionLng Float
+  statut      String      @default("confirmee")
+  createdAt   DateTime    @default(now())
+}
+
+model Message {
+  id           String      @id @default(cuid())
+  trajetId     String
+  trajet       Trajet      @relation(fields: [trajetId], references: [id])
+  expediteurId String
+  expediteur   Utilisateur @relation(fields: [expediteurId], references: [id])
+  contenu      String
+  createdAt    DateTime    @default(now())
+}
+
+model Notation {
+  id             String      @id @default(cuid())
+  trajetId       String
+  trajet         Trajet      @relation(fields: [trajetId], references: [id])
+  noteurId       String
+  noteur         Utilisateur @relation("NotationsDonnees", fields: [noteurId], references: [id])
+  destinataireId String
+  destinataire   Utilisateur @relation("NotationsRecues", fields: [destinataireId], references: [id])
+  etoiles        Int
+  commentaire    String?
+  createdAt      DateTime    @default(now())
+
+  @@unique([trajetId, noteurId, destinataireId])
+}
+
+model Signalement {
+  id           String      @id @default(cuid())
+  trajetId     String
+  trajet       Trajet      @relation(fields: [trajetId], references: [id])
+  type         String
+  signaleParId String
+  signalePar   Utilisateur @relation("SignalementsEmis", fields: [signaleParId], references: [id])
+  concerneId   String
+  concerne     Utilisateur @relation("SignalementsRecus", fields: [concerneId], references: [id])
+  statut       String      @default("ouvert")
+  createdAt    DateTime    @default(now())
+}

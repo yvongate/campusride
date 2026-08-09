@@ -1,0 +1,55 @@
+/* Tokens repris de UI_inspo/_ds/modernist-.../styles.css (design system
+   "Modernist" des maquettes) -- meme source que front_mobile/src/theme.ts. */
+:root {
+  --color-bg: #f3f2f2;
+  --color-surface: #eae9e9;
+  --color-text: #201e1d;
+  --color-accent: #ec3013;
+  --color-divider: rgba(32, 30, 29, 0.4);
+
+  --color-neutral-100: #f8f4f4;
+  --color-neutral-200: #eae7e7;
+  --color-neutral-800: #444141;
+  --color-neutral-900: #2d2b2b;
+
+  --color-accent-100: #fff2ef;
+  --color-accent-700: #ae1800;
+  --color-accent-800: #7c1405;
+
+  --font-heading: 'Archivo', system-ui, sans-serif;
+  --font-body: 'Archivo', system-ui, sans-serif;
+
+  color-scheme: light;
+  color: var(--color-text);
+  background: var(--color-bg);
+  font-family: var(--font-body);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  color: var(--color-text);
+  margin: 0 0 8px;
+}

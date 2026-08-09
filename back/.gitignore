@@ -1,0 +1,10 @@
+node_modules
+# Keep environment variables out of version control
+.env
+
+/generated/prisma
+/dist
+/coverage
+
+# Fichiers uploades par les utilisateurs (selfie, permis) -- jamais commites
+/uploads
