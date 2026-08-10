@@ -22,6 +22,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { conducteurFilesStorage } from './conducteur-files.storage';
 import { CreateDemandeConducteurDto } from './dto/create-demande-conducteur.dto';
+import { identiteFilesStorage } from './identite-files.storage';
 import { UsersService } from './users.service';
 
 interface AuthenticatedRequest extends Request {
@@ -29,9 +30,13 @@ interface AuthenticatedRequest extends Request {
 }
 
 interface ConducteurUploadedFiles {
-  selfie?: Express.Multer.File[];
   permis?: Express.Multer.File[];
   photoVehicule?: Express.Multer.File[];
+}
+
+interface IdentiteUploadedFiles {
+  cni?: Express.Multer.File[];
+  selfie?: Express.Multer.File[];
 }
 
 const DOCUMENT_CONTENT_TYPES: Record<string, string> = {
@@ -53,6 +58,9 @@ export class UsersController {
     const conducteurStatut = await this.usersService.getConducteurStatus(
       req.user.userId,
     );
+    const verificationStatut = await this.usersService.getVerificationStatus(
+      req.user.userId,
+    );
     return {
       id: user.id,
       nom: user.nom,
@@ -60,7 +68,91 @@ export class UsersController {
       telephone: user.telephone,
       note: user.note,
       conducteurStatut,
+      verificationStatut,
     };
+  }
+
+  @Post('me/verification')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'cni', maxCount: 1 },
+        { name: 'selfie', maxCount: 1 },
+      ],
+      { storage: identiteFilesStorage },
+    ),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        cni: { type: 'string', format: 'binary' },
+        selfie: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  async soumettreVerification(
+    @Req() req: AuthenticatedRequest,
+    @UploadedFiles() files: IdentiteUploadedFiles,
+  ) {
+    const cni = files.cni?.[0];
+    const selfie = files.selfie?.[0];
+    if (!cni || !selfie) {
+      throw new BadRequestException('La CNI et le selfie sont requis');
+    }
+
+    return this.usersService.createVerificationIdentite(req.user.userId, {
+      cni: cni.filename,
+      selfie: selfie.filename,
+    });
+  }
+
+  @Get('verifications')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  async listVerifications() {
+    const verifications = await this.usersService.listVerificationsEnAttente();
+    return verifications.map((v) => ({
+      id: v.id,
+      nom: v.utilisateur.nom,
+      prenom: v.utilisateur.prenom,
+      telephone: v.utilisateur.telephone,
+      statut: v.statut,
+      createdAt: v.createdAt,
+    }));
+  }
+
+  @Get('verifications/:id/documents/:type')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  async getDocumentVerification(
+    @Param('id') id: string,
+    @Param('type') type: string,
+  ) {
+    const path = await this.usersService.getVerificationDocumentAbsolutePath(
+      id,
+      type,
+    );
+    const contentType =
+      DOCUMENT_CONTENT_TYPES[extname(path).toLowerCase()] ??
+      'application/octet-stream';
+    return new StreamableFile(createReadStream(path), { type: contentType });
+  }
+
+  @Patch('verifications/:id/valider')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  async validerVerification(@Param('id') id: string) {
+    return this.usersService.validerVerificationIdentite(id);
+  }
+
+  @Patch('verifications/:id/refuser')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  async refuserVerification(@Param('id') id: string) {
+    return this.usersService.refuserVerificationIdentite(id);
   }
 
   @Post('me/conducteur')
@@ -68,7 +160,6 @@ export class UsersController {
   @UseInterceptors(
     FileFieldsInterceptor(
       [
-        { name: 'selfie', maxCount: 1 },
         { name: 'permis', maxCount: 1 },
         { name: 'photoVehicule', maxCount: 1 },
       ],
@@ -80,7 +171,6 @@ export class UsersController {
     schema: {
       type: 'object',
       properties: {
-        selfie: { type: 'string', format: 'binary' },
         permis: { type: 'string', format: 'binary' },
         matriculeVehicule: { type: 'string' },
         photoVehicule: { type: 'string', format: 'binary' },
@@ -93,19 +183,15 @@ export class UsersController {
     @UploadedFiles() files: ConducteurUploadedFiles,
     @Body() dto: CreateDemandeConducteurDto,
   ) {
-    const selfie = files.selfie?.[0];
     const permis = files.permis?.[0];
-    if (!selfie || !permis) {
-      throw new BadRequestException(
-        'Le selfie et la photo du permis sont requis',
-      );
+    if (!permis) {
+      throw new BadRequestException('La photo du permis est requise');
     }
     const photoVehicule = files.photoVehicule?.[0];
 
     return this.usersService.createDemandeConducteur(
       req.user.userId,
       {
-        selfie: selfie.filename,
         photoPermis: permis.filename,
         photoVehicule: photoVehicule?.filename,
       },

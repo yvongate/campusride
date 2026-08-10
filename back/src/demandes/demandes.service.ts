@@ -49,6 +49,21 @@ export class DemandesService {
       throw new BadRequestException('La commune est introuvable');
     }
 
+    // Un seul demande active a la fois par createur (ouverte, en attente
+    // d'un conducteur, ou deja acceptee) -- evite qu'un meme utilisateur
+    // jongle entre plusieurs demandes en parallele.
+    const demandeActive = await this.prisma.demande.findFirst({
+      where: {
+        createurId,
+        statut: { in: ['ouverte', 'quota_atteint', 'acceptee'] },
+      },
+    });
+    if (demandeActive) {
+      throw new ConflictException(
+        'Tu as deja une demande active -- annule-la avant d’en creer une autre',
+      );
+    }
+
     // "Quartier ou POI" (§4.1) : seul un POI porte des coordonnees GPS dans
     // ce schema (Quartier n'en a pas) -- le POI fournit donc la position du
     // createur quand il n'utilise pas sa position GPS reelle (voir Story 4.1,
@@ -460,6 +475,18 @@ export class DemandesService {
       conducteurId,
       demande.heure,
     );
+
+    // Un seul trajet actif a la fois par conducteur (au-dela du simple
+    // chevauchement horaire ci-dessus) -- ne peut pas accepter une nouvelle
+    // demande tant qu'un trajet en cours n'est pas termine/annule.
+    const trajetActif = await this.prisma.trajet.findFirst({
+      where: { conducteurId, statut: { in: ['ouvert', 'commence'] } },
+    });
+    if (trajetActif) {
+      throw new ConflictException(
+        'Tu as deja un trajet actif -- termine-le avant d’en accepter un autre',
+      );
+    }
 
     const participations = await this.prisma.participation.findMany({
       where: { demandeId, statut: 'confirmee' },

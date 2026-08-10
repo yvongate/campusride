@@ -68,6 +68,7 @@ export function DateTimeField({
               value={value}
               mode={mode}
               display="spinner"
+              textColor={colors.text}
               onChange={handleIosChange}
             />
             <TouchableOpacity style={styles.modalClose} onPress={() => setOpen(false)}>

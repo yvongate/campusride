@@ -61,6 +61,13 @@ describe('Statistiques (e2e)', () => {
         },
       },
     });
+    await prisma.verificationIdentite.deleteMany({
+      where: {
+        utilisateur: {
+          telephone: { in: [CONDUCTEUR_PHONE, CANDIDAT_CONDUCTEUR_PHONE] },
+        },
+      },
+    });
     await prisma.utilisateur.deleteMany({ where: { email: ADMIN_EMAIL } });
     await prisma.utilisateur.deleteMany({
       where: {
@@ -147,11 +154,21 @@ describe('Statistiques (e2e)', () => {
       .expect(200);
     conducteurToken = (conducteurVerifyRes.body as { accessToken: string })
       .accessToken;
+    const conducteurUser = await prisma.utilisateur.findUniqueOrThrow({
+      where: { telephone: CONDUCTEUR_PHONE },
+    });
+    await prisma.verificationIdentite.create({
+      data: {
+        userId: conducteurUser.id,
+        cni: 'e2e-cni.jpg',
+        selfie: 'e2e-selfie.jpg',
+        statut: 'valide',
+      },
+    });
     await request(app.getHttpServer())
       .post('/users/me/conducteur')
       .set('Authorization', `Bearer ${conducteurToken}`)
       .field('matriculeVehicule', 'CI-2847-AB')
-      .attach('selfie', TINY_JPEG, 'selfie.jpg')
       .attach('permis', TINY_JPEG, 'permis.jpg')
       .expect(201);
     const demandeRes = await request(app.getHttpServer())
@@ -183,11 +200,21 @@ describe('Statistiques (e2e)', () => {
     candidatConducteurToken = (
       candidatVerifyRes.body as { accessToken: string }
     ).accessToken;
+    const candidatConducteurUser = await prisma.utilisateur.findUniqueOrThrow(
+      { where: { telephone: CANDIDAT_CONDUCTEUR_PHONE } },
+    );
+    await prisma.verificationIdentite.create({
+      data: {
+        userId: candidatConducteurUser.id,
+        cni: 'e2e-cni.jpg',
+        selfie: 'e2e-selfie.jpg',
+        statut: 'valide',
+      },
+    });
     await request(app.getHttpServer())
       .post('/users/me/conducteur')
       .set('Authorization', `Bearer ${candidatConducteurToken}`)
       .field('matriculeVehicule', 'CI-1111-ZZ')
-      .attach('selfie', TINY_JPEG, 'selfie.jpg')
       .attach('permis', TINY_JPEG, 'permis.jpg')
       .expect(201);
   }, 30000);

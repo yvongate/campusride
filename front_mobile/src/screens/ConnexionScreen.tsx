@@ -17,6 +17,7 @@ import { colors, fonts } from '../theme';
 import { isValidLocalPhone, toE164 } from '../utils/phone';
 import { requestOtp } from '../api/client';
 import { Button } from '../components/Button';
+import { KEYBOARD_ACCESSORY_ID, KeyboardDoneBar } from '../components/KeyboardDoneBar';
 import { H3, MutedText } from '../components/Typography';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Connexion'>;
@@ -83,11 +84,15 @@ export default function ConnexionScreen({ navigation }: Props) {
                 value={localNumber}
                 onChangeText={(text) => setLocalNumber(text.replace(/\D/g, ''))}
                 onSubmitEditing={Keyboard.dismiss}
+                inputAccessoryViewID={
+                  Platform.OS === 'ios' ? KEYBOARD_ACCESSORY_ID : undefined
+                }
               />
               {isValidLocalPhone(localNumber) ? (
                 <Text style={styles.checkmark}>✓</Text>
               ) : null}
             </View>
+            <KeyboardDoneBar />
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
 

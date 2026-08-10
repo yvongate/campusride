@@ -3,7 +3,7 @@ import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } fr
 import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
-import { colors } from '../theme';
+import { colors, fonts } from '../theme';
 import { submitConducteurRequest } from '../api/client';
 import { Button } from '../components/Button';
 import { Field, Input } from '../components/Field';
@@ -37,14 +37,30 @@ export default function InscriptionConducteurScreen({ navigation }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handlePickSelfie() {
-    const uri = await pickPhoto();
-    if (uri) setSelfieUri(uri);
+  // Confirmation avant d'ouvrir l'appareil photo -- l'ecran de capture natif
+  // ne propose pas toujours un moyen visible d'annuler selon l'appareil,
+  // donc ce choix (qu'on controle entierement) garantit une porte de sortie
+  // avant meme d'y arriver.
+  function confirmerPuisPrendre(label: string, onSuccess: (uri: string) => void) {
+    Alert.alert(label, 'Ouvrir l’appareil photo ?', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Continuer',
+        onPress: () => {
+          void pickPhoto().then((uri) => {
+            if (uri) onSuccess(uri);
+          });
+        },
+      },
+    ]);
   }
 
-  async function handlePickPermis() {
-    const uri = await pickPhoto();
-    if (uri) setPermisUri(uri);
+  function handlePickSelfie() {
+    confirmerPuisPrendre('Selfie', setSelfieUri);
+  }
+
+  function handlePickPermis() {
+    confirmerPuisPrendre('Photo du permis', setPermisUri);
   }
 
   async function handleSubmit() {
@@ -88,7 +104,16 @@ export default function InscriptionConducteurScreen({ navigation }: Props) {
           <H6>1. Selfie</H6>
           <TouchableOpacity style={styles.photoSlot} onPress={() => void handlePickSelfie()}>
             {selfieUri ? (
-              <Image source={{ uri: selfieUri }} style={styles.photoPreview} />
+              <>
+                <Image source={{ uri: selfieUri }} style={styles.photoPreview} />
+                <TouchableOpacity
+                  style={styles.photoRemove}
+                  onPress={() => setSelfieUri(null)}
+                  hitSlop={8}
+                >
+                  <Text style={styles.photoRemoveText}>✕ Retirer</Text>
+                </TouchableOpacity>
+              </>
             ) : (
               <MutedText style={styles.photoPlaceholder}>Prendre un selfie</MutedText>
             )}
@@ -99,7 +124,16 @@ export default function InscriptionConducteurScreen({ navigation }: Props) {
           <H6>2. Permis de conduire</H6>
           <TouchableOpacity style={styles.photoSlot} onPress={() => void handlePickPermis()}>
             {permisUri ? (
-              <Image source={{ uri: permisUri }} style={styles.photoPreview} />
+              <>
+                <Image source={{ uri: permisUri }} style={styles.photoPreview} />
+                <TouchableOpacity
+                  style={styles.photoRemove}
+                  onPress={() => setPermisUri(null)}
+                  hitSlop={8}
+                >
+                  <Text style={styles.photoRemoveText}>✕ Retirer</Text>
+                </TouchableOpacity>
+              </>
             ) : (
               <MutedText style={styles.photoPlaceholder}>
                 Prendre une photo du permis
@@ -158,6 +192,21 @@ const styles = StyleSheet.create({
   photoPreview: {
     width: '100%',
     height: '100%',
+  },
+  photoRemove: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: colors.background,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  photoRemoveText: {
+    fontFamily: fonts.headingSemiBold,
+    fontSize: 12,
+    color: colors.accent,
   },
   photoPlaceholder: {
     fontSize: 13,

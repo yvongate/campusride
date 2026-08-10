@@ -5,20 +5,40 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, fonts } from '../theme';
 import {
+  listCommunes,
   listPointsInteret,
+  listQuartiers,
   listUniversites,
   publierTrajet,
+  Commune,
   PointInteret,
+  Quartier,
   Universite,
 } from '../api/client';
 import { Button } from '../components/Button';
+import { DateTimeField } from '../components/DateTimeField';
 import { Field, Input } from '../components/Field';
 import { PickerField } from '../components/PickerField';
 import { ScreenFooter } from '../components/ScreenFooter';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { Stepper } from '../components/Stepper';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PublierTrajet'>;
+
+// 4 passagers au total (chauffeur non compris) -- meme regle que pour une
+// demande, un conducteur ne choisit pas ce nombre.
+const PLACES_TRAJET = 4;
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function formatDateLabel(date: Date): string {
+  return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
+}
+
+function formatHeureLabel(date: Date): string {
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
 
 function extractErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof AxiosError) {
@@ -31,12 +51,14 @@ function extractErrorMessage(error: unknown, fallback: string): string {
 
 export default function PublierTrajetScreen({ navigation }: Props) {
   const [universites, setUniversites] = useState<Universite[]>([]);
+  const [communes, setCommunes] = useState<Commune[]>([]);
+  const [quartiers, setQuartiers] = useState<Quartier[]>([]);
   const [pointsInteret, setPointsInteret] = useState<PointInteret[]>([]);
   const [universiteId, setUniversiteId] = useState<string | null>(null);
+  const [communeId, setCommuneId] = useState<string | null>(null);
+  const [quartierId, setQuartierId] = useState<string | null>(null);
   const [pointDeRdvId, setPointDeRdvId] = useState<string | null>(null);
-  const [date, setDate] = useState('');
-  const [heure, setHeure] = useState('');
-  const [places, setPlaces] = useState(4);
+  const [dateHeure, setDateHeure] = useState(() => new Date());
   const [prixTotal, setPrixTotal] = useState('');
   const [loadingReferentiel, setLoadingReferentiel] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -45,12 +67,12 @@ export default function PublierTrajetScreen({ navigation }: Props) {
   const loadReferentiel = useCallback(async () => {
     setLoadingReferentiel(true);
     try {
-      const [universitesData, pointsData] = await Promise.all([
+      const [universitesData, communesData] = await Promise.all([
         listUniversites(),
-        listPointsInteret(),
+        listCommunes(),
       ]);
       setUniversites(universitesData);
-      setPointsInteret(pointsData);
+      setCommunes(communesData);
     } finally {
       setLoadingReferentiel(false);
     }
@@ -60,34 +82,29 @@ export default function PublierTrajetScreen({ navigation }: Props) {
     void loadReferentiel();
   }, [loadReferentiel]);
 
-  function parseHeureIso(): string | null {
-    const dateMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(date.trim());
-    const heureMatch = /^(\d{2}):(\d{2})$/.exec(heure.trim());
-    if (!dateMatch || !heureMatch) return null;
+  useEffect(() => {
+    if (!communeId) {
+      setQuartiers([]);
+      setQuartierId(null);
+      return;
+    }
+    listQuartiers(communeId).then(setQuartiers);
+  }, [communeId]);
 
-    const [, jj, mm, aaaa] = dateMatch;
-    const [, hh, min] = heureMatch;
-    const composed = new Date(
-      Number(aaaa),
-      Number(mm) - 1,
-      Number(jj),
-      Number(hh),
-      Number(min),
-    );
-    if (Number.isNaN(composed.getTime())) return null;
-    return composed.toISOString();
-  }
+  useEffect(() => {
+    if (!quartierId) {
+      setPointsInteret([]);
+      setPointDeRdvId(null);
+      return;
+    }
+    listPointsInteret(quartierId).then(setPointsInteret);
+  }, [quartierId]);
 
   async function handleSubmit() {
     setError(null);
 
     if (!universiteId || !pointDeRdvId) {
       setError('Choisis une université et un point de rendez-vous.');
-      return;
-    }
-    const heureIso = parseHeureIso();
-    if (!heureIso) {
-      setError('Date (JJ/MM/AAAA) ou heure (HH:mm) invalide.');
       return;
     }
     const prixNum = parseFloat(prixTotal);
@@ -101,11 +118,11 @@ export default function PublierTrajetScreen({ navigation }: Props) {
       await publierTrajet({
         universiteId,
         pointDeRdvId,
-        heure: heureIso,
-        places,
+        heure: dateHeure.toISOString(),
+        places: PLACES_TRAJET,
         prixTotal: prixNum,
       });
-      navigation.navigate('MesTrajetsConducteur');
+      navigation.replace('MesTrajetsConducteur');
     } catch (e) {
       setError(extractErrorMessage(e, 'La publication du trajet a échoué.'));
     } finally {
@@ -122,11 +139,13 @@ export default function PublierTrajetScreen({ navigation }: Props) {
   }
 
   const universiteLabel = universites.find((u) => u.id === universiteId)?.nom ?? null;
+  const communeLabel = communes.find((c) => c.id === communeId)?.nom ?? null;
+  const quartierLabel = quartiers.find((q) => q.id === quartierId)?.nom ?? null;
   const pointLabel = pointsInteret.find((p) => p.id === pointDeRdvId)?.nom ?? null;
   const prixNum = parseFloat(prixTotal);
   const prixParPersonne =
     Number.isFinite(prixNum) && prixNum > 0
-      ? Math.ceil(prixNum / places)
+      ? Math.ceil(prixNum / PLACES_TRAJET)
       : null;
 
   return (
@@ -135,46 +154,56 @@ export default function PublierTrajetScreen({ navigation }: Props) {
 
       <ScrollView contentContainerStyle={styles.content}>
         <PickerField
-          label="Point de rendez-vous"
-          placeholder="Choisir un point de rendez-vous"
-          selectedLabel={pointLabel}
-          options={pointsInteret.map((p) => ({ id: p.id, label: p.nom }))}
-          onSelect={setPointDeRdvId}
-        />
-        <PickerField
           label="Université de destination"
           placeholder="Choisir une université"
           selectedLabel={universiteLabel}
           options={universites.map((u) => ({ id: u.id, label: u.nom }))}
           onSelect={setUniversiteId}
         />
+        <PickerField
+          label="Commune de départ"
+          placeholder="Choisir une commune"
+          selectedLabel={communeLabel}
+          options={communes.map((c) => ({ id: c.id, label: c.nom }))}
+          onSelect={setCommuneId}
+        />
+        <PickerField
+          label="Quartier"
+          placeholder={communeId ? 'Choisir un quartier' : "Choisis une commune d'abord"}
+          selectedLabel={quartierLabel}
+          options={quartiers.map((q) => ({ id: q.id, label: q.nom }))}
+          onSelect={setQuartierId}
+          disabled={!communeId}
+        />
+        <PickerField
+          label="Point de rendez-vous"
+          placeholder={quartierId ? 'Choisir un point de rendez-vous' : "Choisis un quartier d'abord"}
+          selectedLabel={pointLabel}
+          options={pointsInteret.map((p) => ({ id: p.id, label: p.nom }))}
+          onSelect={setPointDeRdvId}
+          disabled={!quartierId}
+        />
 
         <View style={styles.row}>
           <View style={styles.rowField}>
-            <Field label="Date">
-              <Input
-                placeholder="01/09/2026"
-                value={date}
-                onChangeText={setDate}
-                keyboardType="numbers-and-punctuation"
-              />
-            </Field>
+            <DateTimeField
+              label="Date"
+              mode="date"
+              value={dateHeure}
+              onChange={setDateHeure}
+              formatLabel={formatDateLabel}
+            />
           </View>
           <View style={styles.rowField}>
-            <Field label="Heure">
-              <Input
-                placeholder="07:00"
-                value={heure}
-                onChangeText={setHeure}
-                keyboardType="numbers-and-punctuation"
-              />
-            </Field>
+            <DateTimeField
+              label="Heure"
+              mode="time"
+              value={dateHeure}
+              onChange={setDateHeure}
+              formatLabel={formatHeureLabel}
+            />
           </View>
         </View>
-
-        <Field label="Places">
-          <Stepper value={places} onChange={setPlaces} />
-        </Field>
 
         <Field label="Prix total du trajet">
           <Input
@@ -189,7 +218,7 @@ export default function PublierTrajetScreen({ navigation }: Props) {
           <View style={styles.callout}>
             <Text style={styles.calloutText}>
               ≈ {prixParPersonne} FCFA par personne, calculé automatiquement
-              pour {places} passagers.
+              pour {PLACES_TRAJET} passagers.
             </Text>
           </View>
         ) : null}

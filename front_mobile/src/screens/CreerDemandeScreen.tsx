@@ -78,7 +78,11 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
   );
   const [locatingLoading, setLocatingLoading] = useState(false);
   const [dateHeure, setDateHeure] = useState(() => new Date());
-  const [places, setPlaces] = useState(3);
+  // Nombre d'AUTRES personnes recherchees (le createur compte deja pour 1) --
+  // envoye au backend comme placesRecherchees = autresPersonnes + 1, car le
+  // backend compte le groupe total (createur inclus). Max 3 => 4 passagers
+  // au total dans la voiture (sans compter le chauffeur).
+  const [autresPersonnes, setAutresPersonnes] = useState(2);
   const [cotisation, setCotisation] = useState('');
   const [loadingReferentiel, setLoadingReferentiel] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -169,7 +173,8 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
         universiteId,
         communeId,
         heure: dateHeure.toISOString(),
-        placesRecherchees: places,
+        // +1 : le backend compte le groupe total (createur inclus).
+        placesRecherchees: autresPersonnes + 1,
         cotisation: cotisationNum,
         chezMoi,
         ...(chezMoi
@@ -323,9 +328,14 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        <Field label={`Je recherche ${places} personne${places > 1 ? 's' : ''}`}>
-          <Stepper value={places} onChange={setPlaces} max={3} />
+        <Field
+          label={`Je recherche ${autresPersonnes} personne${autresPersonnes > 1 ? 's' : ''}`}
+        >
+          <Stepper value={autresPersonnes} onChange={setAutresPersonnes} max={3} />
         </Field>
+        <MutedText style={styles.placesHint}>
+          Toi + {autresPersonnes} = {autresPersonnes + 1} personnes dans la voiture (chauffeur non compris).
+        </MutedText>
 
         <Field label="Cotisation par personne">
           <Input
@@ -421,6 +431,11 @@ const styles = StyleSheet.create({
   },
   rowField: {
     flex: 1,
+  },
+  placesHint: {
+    fontSize: 11.5,
+    marginTop: -6,
+    marginBottom: 14,
   },
   error: {
     color: colors.accent,

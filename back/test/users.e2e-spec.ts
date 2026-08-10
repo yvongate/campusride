@@ -114,6 +114,9 @@ describe('Devenir conducteur (e2e)', () => {
     await prisma.documentsConducteur.deleteMany({
       where: { utilisateur: { telephone: CONDUCTEUR_TEST_PHONE } },
     });
+    await prisma.verificationIdentite.deleteMany({
+      where: { utilisateur: { telephone: CONDUCTEUR_TEST_PHONE } },
+    });
     await prisma.utilisateur.deleteMany({
       where: { telephone: CONDUCTEUR_TEST_PHONE },
     });
@@ -124,10 +127,25 @@ describe('Devenir conducteur (e2e)', () => {
       .send({ phone: CONDUCTEUR_TEST_PHONE, code })
       .expect(200);
     token = (verifyRes.body as { accessToken: string }).accessToken;
+
+    const conducteurUser = await prisma.utilisateur.findUniqueOrThrow({
+      where: { telephone: CONDUCTEUR_TEST_PHONE },
+    });
+    await prisma.verificationIdentite.create({
+      data: {
+        userId: conducteurUser.id,
+        cni: 'e2e-cni.jpg',
+        selfie: 'e2e-selfie.jpg',
+        statut: 'valide',
+      },
+    });
   });
 
   afterAll(async () => {
     await prisma.documentsConducteur.deleteMany({
+      where: { utilisateur: { telephone: CONDUCTEUR_TEST_PHONE } },
+    });
+    await prisma.verificationIdentite.deleteMany({
       where: { utilisateur: { telephone: CONDUCTEUR_TEST_PHONE } },
     });
     await prisma.utilisateur.deleteMany({
@@ -146,7 +164,6 @@ describe('Devenir conducteur (e2e)', () => {
     await request(app.getHttpServer())
       .post('/users/me/conducteur')
       .field('matriculeVehicule', 'CI-2847-AB')
-      .attach('selfie', TINY_JPEG, 'selfie.jpg')
       .attach('permis', TINY_JPEG, 'permis.jpg')
       .expect(401);
   });
@@ -156,7 +173,6 @@ describe('Devenir conducteur (e2e)', () => {
       .post('/users/me/conducteur')
       .set('Authorization', `Bearer ${token}`)
       .field('matriculeVehicule', 'CI-2847-AB')
-      .attach('selfie', TINY_JPEG, 'selfie.jpg')
       .attach('permis', TINY_JPEG, 'permis.jpg')
       .expect(201);
 
@@ -172,7 +188,6 @@ describe('Devenir conducteur (e2e)', () => {
       .post('/users/me/conducteur')
       .set('Authorization', `Bearer ${token}`)
       .field('matriculeVehicule', 'CI-2847-AB')
-      .attach('selfie', TINY_JPEG, 'selfie.jpg')
       .attach('permis', TINY_JPEG, 'permis.jpg')
       .expect(409);
   });
@@ -182,6 +197,9 @@ describe('Devenir conducteur (e2e)', () => {
     // timeout par defaut de 5000ms, meme pattern que le beforeAll principal.
     const rencontrePhone = '+2250700000029';
     await prisma.documentsConducteur.deleteMany({
+      where: { utilisateur: { telephone: rencontrePhone } },
+    });
+    await prisma.verificationIdentite.deleteMany({
       where: { utilisateur: { telephone: rencontrePhone } },
     });
     await prisma.utilisateur.deleteMany({
@@ -195,13 +213,23 @@ describe('Devenir conducteur (e2e)', () => {
       .expect(200);
     const rencontreToken = (verifyRes.body as { accessToken: string })
       .accessToken;
+    const rencontreUser = await prisma.utilisateur.findUniqueOrThrow({
+      where: { telephone: rencontrePhone },
+    });
+    await prisma.verificationIdentite.create({
+      data: {
+        userId: rencontreUser.id,
+        cni: 'e2e-cni.jpg',
+        selfie: 'e2e-selfie.jpg',
+        statut: 'valide',
+      },
+    });
 
     await request(app.getHttpServer())
       .post('/users/me/conducteur')
       .set('Authorization', `Bearer ${rencontreToken}`)
       .field('matriculeVehicule', 'CI-9999-ZZ')
       .field('motBienvenue', 'A bientot sur la route !')
-      .attach('selfie', TINY_JPEG, 'selfie.jpg')
       .attach('permis', TINY_JPEG, 'permis.jpg')
       .attach('photoVehicule', TINY_JPEG, 'vehicule.jpg')
       .expect(201);
@@ -213,6 +241,9 @@ describe('Devenir conducteur (e2e)', () => {
     expect(documents.motBienvenue).toBe('A bientot sur la route !');
 
     await prisma.documentsConducteur.deleteMany({
+      where: { utilisateur: { telephone: rencontrePhone } },
+    });
+    await prisma.verificationIdentite.deleteMany({
       where: { utilisateur: { telephone: rencontrePhone } },
     });
     await prisma.utilisateur.deleteMany({

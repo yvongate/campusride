@@ -37,20 +37,27 @@ export default function ProfilScreen({ navigation }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    getProfile()
-      .then((data) => {
-        if (!cancelled) setProfile(data);
-      })
-      .catch(() => {
-        if (!cancelled) setError('Impossible de charger ton profil.');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    // Reload a chaque fois que l'onglet reprend le focus -- sinon un
+    // changement fait ailleurs (ex. admin qui valide un conducteur) ne se
+    // reflete qu'apres deconnexion/reconnexion, l'ecran n'etant charge
+    // qu'au montage sinon.
+    const unsubscribe = navigation.addListener('focus', () => {
+      getProfile()
+        .then((data) => {
+          if (!cancelled) setProfile(data);
+        })
+        .catch(() => {
+          if (!cancelled) setError('Impossible de charger ton profil.');
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
-  }, []);
+  }, [navigation]);
 
   async function handleLogout() {
     await SecureStore.deleteItemAsync('accessToken');

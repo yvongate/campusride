@@ -50,6 +50,9 @@ describe('Messagerie (e2e)', () => {
     await prisma.documentsConducteur.deleteMany({
       where: { utilisateur: { telephone: CONDUCTEUR_PHONE } },
     });
+    await prisma.verificationIdentite.deleteMany({
+      where: { utilisateur: { telephone: CONDUCTEUR_PHONE } },
+    });
     await prisma.utilisateur.deleteMany({ where: { email: ADMIN_EMAIL } });
     await prisma.utilisateur.deleteMany({
       where: {
@@ -137,11 +140,22 @@ describe('Messagerie (e2e)', () => {
     conducteurToken = (conducteurVerifyRes.body as { accessToken: string })
       .accessToken;
 
+    const conducteurUser = await prisma.utilisateur.findUniqueOrThrow({
+      where: { telephone: CONDUCTEUR_PHONE },
+    });
+    await prisma.verificationIdentite.create({
+      data: {
+        userId: conducteurUser.id,
+        cni: 'e2e-cni.jpg',
+        selfie: 'e2e-selfie.jpg',
+        statut: 'valide',
+      },
+    });
+
     await request(app.getHttpServer())
       .post('/users/me/conducteur')
       .set('Authorization', `Bearer ${conducteurToken}`)
       .field('matriculeVehicule', 'CI-2847-AB')
-      .attach('selfie', TINY_JPEG, 'selfie.jpg')
       .attach('permis', TINY_JPEG, 'permis.jpg')
       .expect(201);
     const demandeRes = await request(app.getHttpServer())

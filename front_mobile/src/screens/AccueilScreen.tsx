@@ -31,6 +31,7 @@ import {
   Trajet,
   Universite,
 } from '../api/client';
+import { formatPlacesRestantes } from '../utils/places';
 import { getDisplayName } from '../utils/profile';
 import { Avatar } from '../components/Avatar';
 import { BurgerButton } from '../components/BurgerButton';
@@ -294,7 +295,7 @@ export default function AccueilScreen({ navigation }: Props) {
           <SegmentedControl
             options={[
               { value: 'trajets', label: 'Trajets disponibles' },
-              { value: 'demandes', label: 'Créer un trajet' },
+              { value: 'demandes', label: 'Créer une demande' },
             ]}
             value={mode}
             onChange={(value) => setMode(value as 'trajets' | 'demandes')}
@@ -328,7 +329,7 @@ export default function AccueilScreen({ navigation }: Props) {
                   />
                 </View>
                 <MutedText>
-                  {item.placesConfirmees}/{item.placesRecherchees} places
+                  {formatPlacesRestantes(item.placesRecherchees, item.placesConfirmees)}
                 </MutedText>
                 <Button
                   title="Annuler cette demande"
@@ -392,9 +393,21 @@ export default function AccueilScreen({ navigation }: Props) {
                           </Text>
                         </View>
                         <View style={styles.titleRow}>
-                          <H5>{item.pointDeRdv.nom}</H5>
+                          <H5
+                            style={styles.titleText}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                          >
+                            {item.pointDeRdv.nom}
+                          </H5>
                           <ArrowRightIcon color={colors.text} />
-                          <H5>{item.universite.nom}</H5>
+                          <H5
+                            style={styles.titleText}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                          >
+                            {item.universite.nom}
+                          </H5>
                         </View>
                         <View style={styles.metaRow}>
                           <MutedText style={styles.metaText}>
@@ -440,6 +453,7 @@ export default function AccueilScreen({ navigation }: Props) {
                   data={demandes}
                   keyExtractor={(item) => item.id}
                   contentContainerStyle={styles.list}
+                  ListHeaderComponent={<H5 style={styles.sectionHeader}>Rejoindre une demande</H5>}
                   ListEmptyComponent={
                     <MutedText style={styles.empty}>Aucune demande pour le moment.</MutedText>
                   }
@@ -463,7 +477,10 @@ export default function AccueilScreen({ navigation }: Props) {
                           </View>
                           <Avatar initial={nom.charAt(0)} size={24} background={colors.accent300} color={colors.text} />
                           <MutedText>
-                            {item.placesRestantes}/{item.placesRecherchees} places · {item.cotisation} FCFA/pers.
+                            {item.placesRestantes > 0
+                              ? `${item.placesRestantes} place${item.placesRestantes > 1 ? 's' : ''} restante${item.placesRestantes > 1 ? 's' : ''}`
+                              : 'Groupe complet'}{' '}
+                            · {item.cotisation} FCFA/pers.
                           </MutedText>
                           {item.dejaRejoint ? (
                             <Button title="Déjà rejoint" variant="secondary" block disabled />
@@ -604,6 +621,9 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
     gap: 12,
   },
+  sectionHeader: {
+    marginBottom: -4,
+  },
   card: {
     marginBottom: 0,
   },
@@ -636,6 +656,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  titleText: {
+    flexShrink: 1,
   },
   metaRow: {
     flexDirection: 'row',

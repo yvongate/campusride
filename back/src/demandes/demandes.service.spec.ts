@@ -16,6 +16,7 @@ describe('DemandesService', () => {
   let poiFindUniqueMock: jest.Mock;
   let demandeCreateMock: jest.Mock;
   let demandeFindManyMock: jest.Mock;
+  let demandeFindFirstMock: jest.Mock;
   let demandeFindUniqueMock: jest.Mock;
   let demandeUpdateMock: jest.Mock;
   let participationCreateMock: jest.Mock;
@@ -25,6 +26,7 @@ describe('DemandesService', () => {
   let poiFindManyMock: jest.Mock;
   let trajetCreateMock: jest.Mock;
   let trajetFindUniqueMock: jest.Mock;
+  let trajetFindFirstMock: jest.Mock;
   let reservationCreateManyMock: jest.Mock;
   let verifierConducteurEtChevauchementMock: jest.Mock;
   let utilisateurFindUniqueMock: jest.Mock;
@@ -44,6 +46,7 @@ describe('DemandesService', () => {
     poiFindUniqueMock = jest.fn();
     demandeCreateMock = jest.fn();
     demandeFindManyMock = jest.fn();
+    demandeFindFirstMock = jest.fn().mockResolvedValue(null);
     demandeFindUniqueMock = jest.fn();
     demandeUpdateMock = jest.fn();
     participationCreateMock = jest.fn();
@@ -53,6 +56,7 @@ describe('DemandesService', () => {
     poiFindManyMock = jest.fn().mockResolvedValue([]);
     trajetCreateMock = jest.fn();
     trajetFindUniqueMock = jest.fn();
+    trajetFindFirstMock = jest.fn().mockResolvedValue(null);
     reservationCreateManyMock = jest.fn();
     verifierConducteurEtChevauchementMock = jest
       .fn()
@@ -82,6 +86,7 @@ describe('DemandesService', () => {
             demande: {
               create: demandeCreateMock,
               findMany: demandeFindManyMock,
+              findFirst: demandeFindFirstMock,
               findUnique: demandeFindUniqueMock,
               update: demandeUpdateMock,
             },
@@ -91,7 +96,7 @@ describe('DemandesService', () => {
               count: participationCountMock,
               findMany: participationFindManyMock,
             },
-            trajet: { findUnique: trajetFindUniqueMock },
+            trajet: { findUnique: trajetFindUniqueMock, findFirst: trajetFindFirstMock },
             utilisateur: { findUnique: utilisateurFindUniqueMock },
             documentsConducteur: {
               findFirst: documentsConducteurFindFirstMock,
@@ -225,6 +230,31 @@ describe('DemandesService', () => {
           positionLng: -4.001,
         }) as unknown,
       });
+    });
+
+    it('throws ConflictException when the createur already has an active demande', async () => {
+      universiteFindUniqueMock.mockResolvedValueOnce({ id: 'univ-1' });
+      communeFindUniqueMock.mockResolvedValueOnce({ id: 'commune-1' });
+      demandeFindFirstMock.mockResolvedValueOnce({
+        id: 'demande-active',
+        statut: 'quota_atteint',
+      });
+
+      await expect(
+        service.creerDemande('createur-1', {
+          ...baseDto,
+          chezMoi: true,
+          lat: 5.36,
+          lng: -3.98,
+        }),
+      ).rejects.toThrow(ConflictException);
+      expect(demandeFindFirstMock).toHaveBeenCalledWith({
+        where: {
+          createurId: 'createur-1',
+          statut: { in: ['ouverte', 'quota_atteint', 'acceptee'] },
+        },
+      });
+      expect(demandeCreateMock).not.toHaveBeenCalled();
     });
 
     it('throws BadRequestException when the universite does not exist', async () => {
@@ -658,6 +688,27 @@ describe('DemandesService', () => {
       await expect(
         service.accepterDemande('conducteur-1', 'demande-1'),
       ).rejects.toThrow(ForbiddenException);
+      expect(trajetCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictException when the conducteur already has an active trajet', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        statut: 'quota_atteint',
+        poiId: 'poi-1',
+        heure: new Date('2026-09-01T07:00:00.000Z'),
+      });
+      trajetFindFirstMock.mockResolvedValueOnce({
+        id: 'trajet-actif',
+        statut: 'ouvert',
+      });
+
+      await expect(
+        service.accepterDemande('conducteur-1', 'demande-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(trajetFindFirstMock).toHaveBeenCalledWith({
+        where: { conducteurId: 'conducteur-1', statut: { in: ['ouvert', 'commence'] } },
+      });
       expect(trajetCreateMock).not.toHaveBeenCalled();
     });
 

@@ -22,6 +22,7 @@ import {
   MesReservationsTrajet,
   signalerNoShow,
 } from '../api/client';
+import { formatPlacesRestantes } from '../utils/places';
 import { getDisplayName } from '../utils/profile';
 import { BurgerButton } from '../components/BurgerButton';
 import { Button } from '../components/Button';
@@ -192,7 +193,7 @@ export default function MesTrajetsPassagerScreen({ navigation }: Props) {
                     <Tag variant={tag.variant} label={tag.label} />
                   </View>
                   <MutedText style={styles.cardBody}>
-                    {item.placesConfirmees}/{item.placesRecherchees} places ·{' '}
+                    {formatPlacesRestantes(item.placesRecherchees, item.placesConfirmees)} ·{' '}
                     {new Date(item.heure).toLocaleTimeString([], {
                       hour: '2-digit',
                       minute: '2-digit',

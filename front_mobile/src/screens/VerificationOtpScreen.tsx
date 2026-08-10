@@ -18,6 +18,7 @@ import { colors, fonts } from '../theme';
 import { requestOtp, verifyOtp } from '../api/client';
 import { OTP_LENGTH, isCompleteCode, joinDigits, splitDigits } from '../utils/otp';
 import { Button } from '../components/Button';
+import { KEYBOARD_ACCESSORY_ID, KeyboardDoneBar } from '../components/KeyboardDoneBar';
 import { H3, MutedText } from '../components/Typography';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'VerificationOtp'>;
@@ -129,9 +130,13 @@ export default function VerificationOtpScreen({ route, navigation }: Props) {
                 value={digit}
                 onChangeText={(value) => handleDigitChange(index, value)}
                 returnKeyType="done"
+                inputAccessoryViewID={
+                  Platform.OS === 'ios' ? KEYBOARD_ACCESSORY_ID : undefined
+                }
               />
             ))}
           </View>
+          <KeyboardDoneBar />
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 

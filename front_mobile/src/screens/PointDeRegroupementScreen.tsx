@@ -10,6 +10,7 @@ import {
   getDemandeDetail,
   getProfile,
 } from '../api/client';
+import { formatPlacesRestantes } from '../utils/places';
 import { getDisplayName } from '../utils/profile';
 import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
@@ -116,7 +117,7 @@ export default function PointDeRegroupementScreen({ navigation, route }: Props) 
               {quotaAtteint ? 'QUOTA ATTEINT' : 'EN ATTENTE DE PARTICIPANTS'}
             </MutedText>
             <MutedText style={styles.progressLabel}>
-              {demande.placesConfirmees}/{demande.placesRecherchees} places
+              {formatPlacesRestantes(demande.placesRecherchees, demande.placesConfirmees)}
             </MutedText>
           </View>
           <View style={styles.progressTrack}>

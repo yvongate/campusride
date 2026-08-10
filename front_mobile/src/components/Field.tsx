@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
+import { Platform, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
 import { colors, fonts } from '../theme';
+import { KEYBOARD_ACCESSORY_ID, KeyboardDoneBar } from './KeyboardDoneBar';
 
 // .field > label + .input de UI_inspo/_ds/.../styles.css.
 export function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -14,11 +15,15 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 
 export function Input({ style, ...props }: TextInputProps) {
   return (
-    <TextInput
-      style={[styles.input, style]}
-      placeholderTextColor={colors.textMuted}
-      {...props}
-    />
+    <>
+      <TextInput
+        style={[styles.input, style]}
+        placeholderTextColor={colors.textMuted}
+        inputAccessoryViewID={Platform.OS === 'ios' ? KEYBOARD_ACCESSORY_ID : undefined}
+        {...props}
+      />
+      <KeyboardDoneBar />
+    </>
   );
 }
 
