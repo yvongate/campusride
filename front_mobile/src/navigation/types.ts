@@ -7,11 +7,12 @@ export type MainTabsParamList = {
 
 export type RootStackParamList = {
   Onboarding: undefined;
+  Localisation: undefined;
   Connexion: undefined;
   VerificationOtp: { phone: string; code: string };
   MainTabs: undefined;
   InscriptionConducteur: undefined;
-  VerificationIdentite: undefined;
+  CompleterProfil: undefined;
   TrajetDetail: { trajetId: string };
   Rencontre: { trajetId: string };
   PublierTrajet: undefined;

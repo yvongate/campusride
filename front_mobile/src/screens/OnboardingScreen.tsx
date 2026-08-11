@@ -22,19 +22,19 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const SLIDES = [
   {
-    illustration: require('../../assets/onboarding/slide1.png') as number,
+    illustration: require('../../assets/onboarding/slide1.jpg') as number,
     title: 'Regroupe-toi avec des étudiants de ton quartier',
     subtitle:
       "Crée ou rejoins un trajet vers ton université et partage les frais avec d'autres étudiants.",
   },
   {
-    illustration: require('../../assets/onboarding/slide2.png') as number,
+    illustration: require('../../assets/onboarding/slide2.jpg') as number,
     title: 'On trouve le meilleur point de rendez-vous pour tout le monde',
     subtitle:
       'Dès que ton groupe est complet, on calcule automatiquement l’endroit le plus pratique pour se retrouver avant de rejoindre le campus ensemble.',
   },
   {
-    illustration: require('../../assets/onboarding/slide3.png') as number,
+    illustration: require('../../assets/onboarding/slide3.jpg') as number,
     title: 'Voyage en confiance',
     subtitle:
       'Conducteurs vérifiés, notation après chaque trajet, paiement en espèces directement avec ton chauffeur.',
@@ -59,7 +59,7 @@ export default function OnboardingScreen({ navigation }: Props) {
 
   function handleSuivant() {
     if (isLast) {
-      navigation.navigate('Connexion');
+      navigation.navigate('Localisation');
     } else {
       goToSlide(index + 1);
     }
@@ -69,7 +69,7 @@ export default function OnboardingScreen({ navigation }: Props) {
     <View style={styles.container}>
       <TouchableOpacity
         style={[styles.skip, { paddingTop: insets.top + 16 }]}
-        onPress={() => navigation.navigate('Connexion')}
+        onPress={() => navigation.navigate('Localisation')}
       >
         <MutedText style={styles.skipText}>Passer</MutedText>
       </TouchableOpacity>

@@ -19,26 +19,6 @@ async function requestOtpAndGetCode(
   return (res.body as { code: string }).code;
 }
 
-// Verification d'identite generale (Story 5.4) : requise avant de creer/
-// rejoindre une demande ou reserver un trajet -- creee directement en base
-// (comme pour les conducteurs) plutot que via le flux API complet, pour
-// garder les fixtures de ce fichier lisibles.
-async function creerVerificationValidee(
-  prisma: PrismaService,
-  telephone: string,
-): Promise<void> {
-  const user = await prisma.utilisateur.findUniqueOrThrow({
-    where: { telephone },
-  });
-  await prisma.verificationIdentite.create({
-    data: {
-      userId: user.id,
-      cni: 'e2e-cni.jpg',
-      selfie: 'e2e-selfie.jpg',
-      statut: 'valide',
-    },
-  });
-}
 
 describe('Demandes (e2e)', () => {
   let app: INestApplication<App>;
@@ -73,13 +53,6 @@ describe('Demandes (e2e)', () => {
     });
     await prisma.documentsConducteur.deleteMany({
       where: { utilisateur: { telephone: CONDUCTEUR_PHONE } },
-    });
-    await prisma.verificationIdentite.deleteMany({
-      where: {
-        utilisateur: {
-          telephone: { in: [CONDUCTEUR_PHONE, ETUDIANT_PHONE, ETUDIANT2_PHONE] },
-        },
-      },
     });
     await prisma.participation.deleteMany({
       where: { utilisateur: { telephone: { in: [ETUDIANT_PHONE, ETUDIANT2_PHONE] } } },
@@ -172,7 +145,6 @@ describe('Demandes (e2e)', () => {
       .expect(200);
     etudiantToken = (etudiantVerifyRes.body as { accessToken: string })
       .accessToken;
-    await creerVerificationValidee(prisma, ETUDIANT_PHONE);
 
     const code2 = await requestOtpAndGetCode(app, ETUDIANT2_PHONE);
     const etudiant2VerifyRes = await request(app.getHttpServer())
@@ -181,7 +153,6 @@ describe('Demandes (e2e)', () => {
       .expect(200);
     etudiant2Token = (etudiant2VerifyRes.body as { accessToken: string })
       .accessToken;
-    await creerVerificationValidee(prisma, ETUDIANT2_PHONE);
 
     // Conducteur valide (flux reel OTP -> demande -> validation admin, meme
     // pattern que trajets.e2e-spec.ts) -- necessaire pour la Story 4.5
@@ -193,12 +164,12 @@ describe('Demandes (e2e)', () => {
       .expect(200);
     conducteurToken = (conducteurVerifyRes.body as { accessToken: string })
       .accessToken;
-    await creerVerificationValidee(prisma, CONDUCTEUR_PHONE);
 
     await request(app.getHttpServer())
       .post('/users/me/conducteur')
       .set('Authorization', `Bearer ${conducteurToken}`)
       .field('matriculeVehicule', 'CI-2847-AB')
+      .attach('selfie', TINY_JPEG, 'selfie.jpg')
       .attach('permis', TINY_JPEG, 'permis.jpg')
       .expect(201);
 
@@ -416,18 +387,10 @@ describe('Demandes (e2e)', () => {
           .send({ phone, code })
           .expect(200);
         setToken((verifyRes.body as { accessToken: string }).accessToken);
-        await creerVerificationValidee(prisma, phone);
       }
     }, 15000);
 
     afterAll(async () => {
-      await prisma.verificationIdentite.deleteMany({
-        where: {
-          utilisateur: {
-            telephone: { in: [PARTICIPANT2_PHONE, PARTICIPANT3_PHONE] },
-          },
-        },
-      });
       await prisma.participation.deleteMany({
         where: {
           utilisateur: {
@@ -629,7 +592,6 @@ describe('Demandes (e2e)', () => {
           .send({ phone, code })
           .expect(200);
         setToken((verifyRes.body as { accessToken: string }).accessToken);
-        await creerVerificationValidee(prisma, phone);
       }
     }, 15000);
 
@@ -637,13 +599,6 @@ describe('Demandes (e2e)', () => {
       await prisma.reservation.deleteMany({
         where: {
           passager: {
-            telephone: { in: [PARTICIPANT4_PHONE, CREATEUR_ACCEPTATION_PHONE] },
-          },
-        },
-      });
-      await prisma.verificationIdentite.deleteMany({
-        where: {
-          utilisateur: {
             telephone: { in: [PARTICIPANT4_PHONE, CREATEUR_ACCEPTATION_PHONE] },
           },
         },

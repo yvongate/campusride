@@ -25,7 +25,6 @@ model Utilisateur {
   actif                 Boolean                 @default(true)
   createdAt             DateTime                @default(now())
   documentsConducteur   DocumentsConducteur[]
-  verificationsIdentite VerificationIdentite[]
   trajets               Trajet[]
   reservations          Reservation[]
   demandes              Demande[]
@@ -37,27 +36,10 @@ model Utilisateur {
   signalementsRecus     Signalement[]           @relation("SignalementsRecus")
 }
 
-// Verification d'identite generale (CNI + selfie), requise pour toute
-// interaction "active" avec l'appli (creer/rejoindre une demande, etc.),
-// distincte de DocumentsConducteur (permis + matricule) -- le selfie ici
-// est reutilise tel quel quand un utilisateur devient conducteur, pas
-// redemande une seconde fois.
-model VerificationIdentite {
-  id          String      @id @default(cuid())
-  userId      String
-  utilisateur Utilisateur @relation(fields: [userId], references: [id])
-  cni         String
-  selfie      String
-  statut      String      @default("en attente")
-  createdAt   DateTime    @default(now())
-}
-
 model DocumentsConducteur {
   id                String      @id @default(cuid())
   userId            String
   utilisateur       Utilisateur @relation(fields: [userId], references: [id])
-  // Copie du selfie de la VerificationIdentite validee de l'utilisateur au
-  // moment de la demande (pas re-televerse) -- voir UsersService.createDemandeConducteur.
   selfie            String
   photoPermis       String
   matriculeVehicule String

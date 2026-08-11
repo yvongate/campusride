@@ -7,16 +7,11 @@ import {
 import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { CONDUCTEUR_UPLOADS_DIR } from './conducteur-files.storage';
-import { IDENTITE_UPLOADS_DIR } from './identite-files.storage';
 
 export interface ConducteurFiles {
+  selfie: string;
   photoPermis: string;
   photoVehicule?: string;
-}
-
-export interface IdentiteFiles {
-  cni: string;
-  selfie: string;
 }
 
 @Injectable()
@@ -27,98 +22,19 @@ export class UsersService {
     return this.prisma.utilisateur.findUniqueOrThrow({ where: { id } });
   }
 
+  async updateNom(userId: string, nom: string) {
+    return this.prisma.utilisateur.update({
+      where: { id: userId },
+      data: { nom },
+    });
+  }
+
   async getConducteurStatus(userId: string): Promise<string | null> {
     const latest = await this.prisma.documentsConducteur.findFirst({
       where: { userId },
       orderBy: { createdAt: 'desc' },
     });
     return latest?.statut ?? null;
-  }
-
-  async getVerificationStatus(userId: string): Promise<string | null> {
-    const latest = await this.prisma.verificationIdentite.findFirst({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-    });
-    return latest?.statut ?? null;
-  }
-
-  async createVerificationIdentite(userId: string, files: IdentiteFiles) {
-    const pending = await this.prisma.verificationIdentite.findFirst({
-      where: { userId, statut: 'en attente' },
-    });
-    if (pending) {
-      throw new ConflictException(
-        'Une verification d’identite est deja en attente',
-      );
-    }
-
-    return this.prisma.verificationIdentite.create({
-      data: { userId, cni: files.cni, selfie: files.selfie },
-    });
-  }
-
-  async listVerificationsEnAttente() {
-    return this.prisma.verificationIdentite.findMany({
-      where: { statut: 'en attente' },
-      include: { utilisateur: true },
-      orderBy: { createdAt: 'asc' },
-    });
-  }
-
-  async getVerificationDocumentAbsolutePath(
-    verificationId: string,
-    type: string,
-  ): Promise<string> {
-    if (type !== 'cni' && type !== 'selfie') {
-      throw new BadRequestException(
-        'Type de document invalide (cni ou selfie attendu)',
-      );
-    }
-
-    const verification = await this.prisma.verificationIdentite.findUnique({
-      where: { id: verificationId },
-    });
-    if (!verification) {
-      throw new NotFoundException('Verification introuvable');
-    }
-
-    const filename = type === 'cni' ? verification.cni : verification.selfie;
-    return join(IDENTITE_UPLOADS_DIR, filename);
-  }
-
-  async validerVerificationIdentite(verificationId: string) {
-    const verification = await this.prisma.verificationIdentite.findUnique({
-      where: { id: verificationId },
-    });
-    if (!verification) {
-      throw new NotFoundException('Verification introuvable');
-    }
-    if (verification.statut !== 'en attente') {
-      throw new ConflictException('Cette verification a deja ete traitee');
-    }
-
-    return this.prisma.verificationIdentite.update({
-      where: { id: verificationId },
-      data: { statut: 'valide' },
-    });
-  }
-
-  async refuserVerificationIdentite(verificationId: string) {
-    const verification = await this.prisma.verificationIdentite.findUnique({
-      where: { id: verificationId },
-    });
-    if (!verification) {
-      throw new NotFoundException('Verification introuvable');
-    }
-    if (verification.statut !== 'en attente') {
-      throw new ConflictException('Cette verification a deja ete traitee');
-    }
-
-    return this.prisma.verificationIdentite.update({
-      where: { id: verificationId },
-      data: { statut: 'refuse' },
-    });
   }
 
   async createDemandeConducteur(
@@ -136,22 +52,10 @@ export class UsersService {
       );
     }
 
-    // Le selfie provient de la VerificationIdentite deja validee -- pas
-    // redemande ici (voir modele VerificationIdentite, schema.prisma).
-    const verificationValidee = await this.prisma.verificationIdentite.findFirst({
-      where: { userId, statut: 'valide' },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!verificationValidee) {
-      throw new ConflictException(
-        'Complete d’abord ta verification d’identite (CNI + selfie) avant de devenir conducteur',
-      );
-    }
-
     return this.prisma.documentsConducteur.create({
       data: {
         userId,
-        selfie: verificationValidee.selfie,
+        selfie: files.selfie,
         photoPermis: files.photoPermis,
         matriculeVehicule,
         photoVehicule: files.photoVehicule,

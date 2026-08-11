@@ -10,7 +10,7 @@ interface PendingOtp {
 
 export interface VerifyOtpResult {
   accessToken: string;
-  user: { id: string; telephone: string; role: string };
+  user: { id: string; telephone: string; role: string; nom: string | null };
 }
 
 export interface LoginAdminResult {
@@ -78,7 +78,7 @@ export class AuthService {
 
     return {
       accessToken,
-      user: { id: user.id, telephone: phone, role: user.role },
+      user: { id: user.id, telephone: phone, role: user.role, nom: user.nom },
     };
   }
 

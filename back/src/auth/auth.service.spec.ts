@@ -15,6 +15,7 @@ interface FakeUser {
   id: string;
   telephone: string;
   role: string;
+  nom: string | null;
 }
 
 interface FakeAdminUser {
@@ -74,6 +75,7 @@ describe('AuthService', () => {
         id: 'user-1',
         telephone: phone,
         role: 'etudiant',
+        nom: null,
       });
 
       const result = await service.verifyOtp(phone, code);
@@ -89,7 +91,7 @@ describe('AuthService', () => {
       });
       expect(result).toEqual({
         accessToken: 'signed.jwt.token',
-        user: { id: 'user-1', telephone: phone, role: 'etudiant' },
+        user: { id: 'user-1', telephone: phone, role: 'etudiant', nom: null },
       });
     });
 
@@ -107,6 +109,7 @@ describe('AuthService', () => {
         id: 'user-2',
         telephone: phone,
         role: 'etudiant',
+        nom: null,
       });
       const realCode = requestAndCaptureCode(phone);
       await expect(service.verifyOtp(phone, realCode)).resolves.toBeDefined();

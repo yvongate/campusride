@@ -29,25 +29,7 @@ export class DemandesService {
     private readonly trajetsService: TrajetsService,
   ) {}
 
-  // Verification d'identite generale (CNI + selfie, Story 5.4) : requise
-  // avant toute interaction reelle avec d'autres utilisateurs (creer/
-  // rejoindre une demande, reserver un trajet) -- pas seulement pour
-  // devenir conducteur (voir UsersService.createDemandeConducteur, meme
-  // garde-fou).
-  private async verifierIdentiteValidee(userId: string): Promise<void> {
-    const verification = await this.prisma.verificationIdentite.findFirst({
-      where: { userId, statut: 'valide' },
-    });
-    if (!verification) {
-      throw new ConflictException(
-        'Complete d’abord ta verification d’identite (CNI + selfie) avant d’interagir avec les demandes',
-      );
-    }
-  }
-
   async creerDemande(createurId: string, dto: CreateDemandeDto) {
-    await this.verifierIdentiteValidee(createurId);
-
     const universite = await this.prisma.universite.findUnique({
       where: { id: dto.universiteId },
     });
@@ -217,8 +199,6 @@ export class DemandesService {
     demandeId: string,
     dto: JoinDemandeDto,
   ) {
-    await this.verifierIdentiteValidee(userId);
-
     const demande = await this.prisma.demande.findUnique({
       where: { id: demandeId },
     });

@@ -189,43 +189,6 @@ export async function getDocumentConducteurBlobUrl(
   return URL.createObjectURL(res.data as Blob);
 }
 
-export interface VerificationIdentite {
-  id: string;
-  nom: string | null;
-  prenom: string | null;
-  telephone: string | null;
-  statut: string;
-  createdAt: string;
-}
-
-export async function listVerificationsIdentite(): Promise<
-  VerificationIdentite[]
-> {
-  const res = await apiClient.get<VerificationIdentite[]>(
-    '/users/verifications',
-  );
-  return res.data;
-}
-
-export async function validerVerificationIdentite(id: string): Promise<void> {
-  await apiClient.patch(`/users/verifications/${id}/valider`);
-}
-
-export async function refuserVerificationIdentite(id: string): Promise<void> {
-  await apiClient.patch(`/users/verifications/${id}/refuser`);
-}
-
-export async function getDocumentVerificationBlobUrl(
-  verificationId: string,
-  type: 'cni' | 'selfie',
-): Promise<string> {
-  const res = await apiClient.get(
-    `/users/verifications/${verificationId}/documents/${type}`,
-    { responseType: 'blob' },
-  );
-  return URL.createObjectURL(res.data as Blob);
-}
-
 export interface Signalement {
   id: string;
   type: string;

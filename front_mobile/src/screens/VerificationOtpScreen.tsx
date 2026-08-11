@@ -73,7 +73,7 @@ export default function VerificationOtpScreen({ route, navigation }: Props) {
       await SecureStore.setItemAsync('accessToken', result.accessToken);
       navigation.reset({
         index: 0,
-        routes: [{ name: 'MainTabs' }],
+        routes: [{ name: result.user.nom ? 'MainTabs' : 'CompleterProfil' }],
       });
     } catch {
       setError('Code incorrect ou expiré. Réessaie.');

@@ -31,6 +31,7 @@ async function pickPhoto(): Promise<string | null> {
 }
 
 export default function InscriptionConducteurScreen({ navigation }: Props) {
+  const [selfieUri, setSelfieUri] = useState<string | null>(null);
   const [permisUri, setPermisUri] = useState<string | null>(null);
   const [matricule, setMatricule] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -54,20 +55,24 @@ export default function InscriptionConducteurScreen({ navigation }: Props) {
     ]);
   }
 
+  function handlePickSelfie() {
+    confirmerPuisPrendre('Selfie', setSelfieUri);
+  }
+
   function handlePickPermis() {
     confirmerPuisPrendre('Photo du permis', setPermisUri);
   }
 
   async function handleSubmit() {
-    if (!permisUri || !matricule.trim()) {
-      setError("Complète les 2 étapes avant d'envoyer ta demande.");
+    if (!selfieUri || !permisUri || !matricule.trim()) {
+      setError("Complète les 3 étapes avant d'envoyer ta demande.");
       return;
     }
 
     setError(null);
     setSubmitting(true);
     try {
-      await submitConducteurRequest(permisUri, matricule.trim());
+      await submitConducteurRequest(selfieUri, permisUri, matricule.trim());
       Alert.alert(
         'Demande envoyée',
         'Ta demande sera examinée sous 48h.',
@@ -96,7 +101,27 @@ export default function InscriptionConducteurScreen({ navigation }: Props) {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.step}>
-          <H6>1. Permis de conduire</H6>
+          <H6>1. Selfie</H6>
+          <TouchableOpacity style={styles.photoSlot} onPress={() => void handlePickSelfie()}>
+            {selfieUri ? (
+              <>
+                <Image source={{ uri: selfieUri }} style={styles.photoPreview} />
+                <TouchableOpacity
+                  style={styles.photoRemove}
+                  onPress={() => setSelfieUri(null)}
+                  hitSlop={8}
+                >
+                  <Text style={styles.photoRemoveText}>✕ Retirer</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <MutedText style={styles.photoPlaceholder}>Prendre un selfie</MutedText>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.step}>
+          <H6>2. Permis de conduire</H6>
           <TouchableOpacity style={styles.photoSlot} onPress={() => void handlePickPermis()}>
             {permisUri ? (
               <>
@@ -117,7 +142,7 @@ export default function InscriptionConducteurScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
 
-        <Field label="2. Matricule du véhicule">
+        <Field label="3. Matricule du véhicule">
           <Input
             placeholder="CI-2847-AB"
             value={matricule}

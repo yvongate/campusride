@@ -31,7 +31,6 @@ describe('DemandesService', () => {
   let verifierConducteurEtChevauchementMock: jest.Mock;
   let utilisateurFindUniqueMock: jest.Mock;
   let documentsConducteurFindFirstMock: jest.Mock;
-  let verificationIdentiteFindFirstMock: jest.Mock;
 
   const baseDto = {
     universiteId: 'univ-1',
@@ -64,9 +63,6 @@ describe('DemandesService', () => {
       .mockResolvedValue(undefined);
     utilisateurFindUniqueMock = jest.fn();
     documentsConducteurFindFirstMock = jest.fn();
-    verificationIdentiteFindFirstMock = jest
-      .fn()
-      .mockResolvedValue({ id: 'verif-1', userId: 'user-1', statut: 'valide' });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -104,9 +100,6 @@ describe('DemandesService', () => {
             utilisateur: { findUnique: utilisateurFindUniqueMock },
             documentsConducteur: {
               findFirst: documentsConducteurFindFirstMock,
-            },
-            verificationIdentite: {
-              findFirst: verificationIdentiteFindFirstMock,
             },
             $transaction: jest.fn(
               (
@@ -264,21 +257,6 @@ describe('DemandesService', () => {
       expect(demandeCreateMock).not.toHaveBeenCalled();
     });
 
-    it('throws ConflictException when the createur has no validated identity verification', async () => {
-      verificationIdentiteFindFirstMock.mockResolvedValueOnce(null);
-
-      await expect(
-        service.creerDemande('createur-1', {
-          ...baseDto,
-          chezMoi: true,
-          lat: 5.36,
-          lng: -3.98,
-        }),
-      ).rejects.toThrow(ConflictException);
-      expect(universiteFindUniqueMock).not.toHaveBeenCalled();
-      expect(demandeCreateMock).not.toHaveBeenCalled();
-    });
-
     it('throws BadRequestException when the universite does not exist', async () => {
       universiteFindUniqueMock.mockResolvedValueOnce(null);
 
@@ -421,16 +399,6 @@ describe('DemandesService', () => {
 
   describe('rejoindreDemande', () => {
     const joinDto = { lat: 5.36, lng: -3.98 };
-
-    it('throws ConflictException when the user has no validated identity verification', async () => {
-      verificationIdentiteFindFirstMock.mockResolvedValueOnce(null);
-
-      await expect(
-        service.rejoindreDemande('user-1', 'demande-1', joinDto),
-      ).rejects.toThrow(ConflictException);
-      expect(demandeFindUniqueMock).not.toHaveBeenCalled();
-      expect(participationCreateMock).not.toHaveBeenCalled();
-    });
 
     it('throws NotFoundException when the demande does not exist', async () => {
       demandeFindUniqueMock.mockResolvedValueOnce(null);

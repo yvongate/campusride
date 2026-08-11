@@ -13,10 +13,11 @@ import * as SplashScreen from 'expo-splash-screen';
 import type { RootStackParamList } from './src/navigation/types';
 import MainTabs from './src/navigation/MainTabs';
 import OnboardingScreen from './src/screens/OnboardingScreen';
+import LocalisationScreen from './src/screens/LocalisationScreen';
 import ConnexionScreen from './src/screens/ConnexionScreen';
 import VerificationOtpScreen from './src/screens/VerificationOtpScreen';
 import InscriptionConducteurScreen from './src/screens/InscriptionConducteurScreen';
-import VerificationIdentiteScreen from './src/screens/VerificationIdentiteScreen';
+import CompleterProfilScreen from './src/screens/CompleterProfilScreen';
 import TrajetDetailScreen from './src/screens/TrajetDetailScreen';
 import RencontreScreen from './src/screens/RencontreScreen';
 import PublierTrajetScreen from './src/screens/PublierTrajetScreen';
@@ -58,6 +59,7 @@ export default function App() {
           screenOptions={{ headerShown: false }}
         >
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          <Stack.Screen name="Localisation" component={LocalisationScreen} />
           <Stack.Screen name="Connexion" component={ConnexionScreen} />
           <Stack.Screen
             name="VerificationOtp"
@@ -69,8 +71,8 @@ export default function App() {
             component={InscriptionConducteurScreen}
           />
           <Stack.Screen
-            name="VerificationIdentite"
-            component={VerificationIdentiteScreen}
+            name="CompleterProfil"
+            component={CompleterProfilScreen}
           />
           <Stack.Screen name="TrajetDetail" component={TrajetDetailScreen} />
           <Stack.Screen name="Rencontre" component={RencontreScreen} />
