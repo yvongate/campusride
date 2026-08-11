@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import ConducteursPage from './pages/ConducteursPage';
+import VerificationsPage from './pages/VerificationsPage';
 import SignalementsPage from './pages/SignalementsPage';
 import ComptesPage from './pages/ComptesPage';
 import UniversitesPage from './pages/UniversitesPage';
@@ -27,6 +28,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <ConducteursPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/verifications"
+          element={
+            <ProtectedRoute>
+              <VerificationsPage />
             </ProtectedRoute>
           }
         />

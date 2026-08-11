@@ -4,14 +4,13 @@ import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, fonts } from '../theme';
-import { submitConducteurRequest } from '../api/client';
+import { submitVerificationIdentite } from '../api/client';
 import { Button } from '../components/Button';
-import { Field, Input } from '../components/Field';
 import { ScreenFooter } from '../components/ScreenFooter';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { H6, MutedText } from '../components/Typography';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'InscriptionConducteur'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'VerificationIdentite'>;
 
 async function pickPhoto(): Promise<string | null> {
   const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -30,16 +29,16 @@ async function pickPhoto(): Promise<string | null> {
   return result.assets[0].uri;
 }
 
-export default function InscriptionConducteurScreen({ navigation }: Props) {
-  const [permisUri, setPermisUri] = useState<string | null>(null);
-  const [matricule, setMatricule] = useState('');
+export default function VerificationIdentiteScreen({ navigation }: Props) {
+  const [cniUri, setCniUri] = useState<string | null>(null);
+  const [selfieUri, setSelfieUri] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Confirmation avant d'ouvrir l'appareil photo -- l'ecran de capture natif
-  // ne propose pas toujours un moyen visible d'annuler selon l'appareil,
-  // donc ce choix (qu'on controle entierement) garantit une porte de sortie
-  // avant meme d'y arriver.
+  // Meme garde-fou que InscriptionConducteurScreen : confirmation avant
+  // d'ouvrir l'appareil photo natif (pas toujours un bouton retour visible
+  // selon l'appareil) -- jamais de choix depuis la galerie, toujours une
+  // vraie prise de vue.
   function confirmerPuisPrendre(label: string, onSuccess: (uri: string) => void) {
     Alert.alert(label, 'Ouvrir l’appareil photo ?', [
       { text: 'Annuler', style: 'cancel' },
@@ -54,32 +53,36 @@ export default function InscriptionConducteurScreen({ navigation }: Props) {
     ]);
   }
 
-  function handlePickPermis() {
-    confirmerPuisPrendre('Photo du permis', setPermisUri);
+  function handlePickCni() {
+    confirmerPuisPrendre("Carte d'identité", setCniUri);
+  }
+
+  function handlePickSelfie() {
+    confirmerPuisPrendre('Selfie', setSelfieUri);
   }
 
   async function handleSubmit() {
-    if (!permisUri || !matricule.trim()) {
-      setError("Complète les 2 étapes avant d'envoyer ta demande.");
+    if (!cniUri || !selfieUri) {
+      setError('Complète les 2 étapes avant d’envoyer ta vérification.');
       return;
     }
 
     setError(null);
     setSubmitting(true);
     try {
-      await submitConducteurRequest(permisUri, matricule.trim());
+      await submitVerificationIdentite(cniUri, selfieUri);
       Alert.alert(
-        'Demande envoyée',
-        'Ta demande sera examinée sous 48h.',
+        'Vérification envoyée',
+        'Elle sera examinée sous 48h.',
         [{ text: 'OK', onPress: () => navigation.goBack() }],
       );
     } catch (err) {
       const status = (err as { response?: { status?: number } }).response
         ?.status;
       if (status === 409) {
-        setError('Tu as déjà une demande en cours.');
+        setError('Tu as déjà une vérification en cours.');
       } else {
-        setError("Impossible d'envoyer ta demande pour le moment.");
+        setError("Impossible d'envoyer ta vérification pour le moment.");
       }
     } finally {
       setSubmitting(false);
@@ -89,49 +92,47 @@ export default function InscriptionConducteurScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <ScreenHeader
-        title="Devenir conducteur"
+        title="Vérification d'identité"
         subtitle="Validation manuelle par l'administrateur sous 48h"
         onBack={() => navigation.goBack()}
       />
 
       <ScrollView contentContainerStyle={styles.content}>
+        <MutedText>
+          Nécessaire pour créer ou rejoindre un trajet, et réutilisée si tu
+          deviens conducteur plus tard.
+        </MutedText>
+
         <View style={styles.step}>
-          <H6>1. Permis de conduire</H6>
-          <TouchableOpacity style={styles.photoSlot} onPress={() => void handlePickPermis()}>
-            {permisUri ? (
-              <>
-                <Image source={{ uri: permisUri }} style={styles.photoPreview} />
-                <TouchableOpacity
-                  style={styles.photoRemove}
-                  onPress={() => setPermisUri(null)}
-                  hitSlop={8}
-                >
-                  <Text style={styles.photoRemoveText}>✕ Retirer</Text>
-                </TouchableOpacity>
-              </>
+          <H6>1. Carte d'identité (CNI)</H6>
+          <TouchableOpacity style={styles.photoSlot} onPress={() => void handlePickCni()}>
+            {cniUri ? (
+              <Image source={{ uri: cniUri }} style={styles.photoPreview} />
             ) : (
               <MutedText style={styles.photoPlaceholder}>
-                Prendre une photo du permis
+                Prendre une photo de ta CNI
               </MutedText>
             )}
           </TouchableOpacity>
         </View>
 
-        <Field label="2. Matricule du véhicule">
-          <Input
-            placeholder="CI-2847-AB"
-            value={matricule}
-            onChangeText={setMatricule}
-            autoCapitalize="characters"
-          />
-        </Field>
+        <View style={styles.step}>
+          <H6>2. Selfie</H6>
+          <TouchableOpacity style={styles.photoSlot} onPress={() => void handlePickSelfie()}>
+            {selfieUri ? (
+              <Image source={{ uri: selfieUri }} style={styles.photoPreview} />
+            ) : (
+              <MutedText style={styles.photoPlaceholder}>Prendre un selfie</MutedText>
+            )}
+          </TouchableOpacity>
+        </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
 
       <ScreenFooter>
         <Button
-          title="Envoyer ma demande"
+          title="Envoyer ma vérification"
           block
           loading={submitting}
           onPress={() => void handleSubmit()}
@@ -167,21 +168,6 @@ const styles = StyleSheet.create({
   photoPreview: {
     width: '100%',
     height: '100%',
-  },
-  photoRemove: {
-    position: 'absolute',
-    bottom: 8,
-    right: 8,
-    backgroundColor: colors.background,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: colors.accent,
-  },
-  photoRemoveText: {
-    fontFamily: fonts.headingSemiBold,
-    fontSize: 12,
-    color: colors.accent,
   },
   photoPlaceholder: {
     fontSize: 13,

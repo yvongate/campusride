@@ -49,7 +49,7 @@ describe('Signalements (e2e)', () => {
       where: { utilisateur: { telephone: CONDUCTEUR_PHONE } },
     });
     await prisma.verificationIdentite.deleteMany({
-      where: { utilisateur: { telephone: CONDUCTEUR_PHONE } },
+      where: { utilisateur: { telephone: { in: [CONDUCTEUR_PHONE, ETUDIANT_PHONE] } } },
     });
     await prisma.utilisateur.deleteMany({ where: { email: ADMIN_EMAIL } });
     await prisma.utilisateur.deleteMany({
@@ -171,6 +171,17 @@ describe('Signalements (e2e)', () => {
       .expect(200);
     etudiantToken = (etudiantVerifyRes.body as { accessToken: string })
       .accessToken;
+    const etudiantUser = await prisma.utilisateur.findUniqueOrThrow({
+      where: { telephone: ETUDIANT_PHONE },
+    });
+    await prisma.verificationIdentite.create({
+      data: {
+        userId: etudiantUser.id,
+        cni: 'e2e-cni.jpg',
+        selfie: 'e2e-selfie.jpg',
+        statut: 'valide',
+      },
+    });
   }, 30000);
 
   afterAll(async () => {

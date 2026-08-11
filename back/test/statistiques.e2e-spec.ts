@@ -64,7 +64,9 @@ describe('Statistiques (e2e)', () => {
     await prisma.verificationIdentite.deleteMany({
       where: {
         utilisateur: {
-          telephone: { in: [CONDUCTEUR_PHONE, CANDIDAT_CONDUCTEUR_PHONE] },
+          telephone: {
+            in: [CONDUCTEUR_PHONE, CANDIDAT_CONDUCTEUR_PHONE, ETUDIANT_PHONE],
+          },
         },
       },
     });
@@ -190,6 +192,17 @@ describe('Statistiques (e2e)', () => {
       .expect(200);
     etudiantToken = (etudiantVerifyRes.body as { accessToken: string })
       .accessToken;
+    const etudiantUser = await prisma.utilisateur.findUniqueOrThrow({
+      where: { telephone: ETUDIANT_PHONE },
+    });
+    await prisma.verificationIdentite.create({
+      data: {
+        userId: etudiantUser.id,
+        cni: 'e2e-cni.jpg',
+        selfie: 'e2e-selfie.jpg',
+        statut: 'valide',
+      },
+    });
 
     // Candidat conducteur laisse volontairement "en attente" (jamais valide)
     code = await requestOtpAndGetCode(app, CANDIDAT_CONDUCTEUR_PHONE);

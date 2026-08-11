@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -122,7 +122,6 @@ export default function AccueilScreen({ navigation }: Props) {
   const [communes, setCommunes] = useState<Commune[]>([]);
   const [universiteId, setUniversiteId] = useState<string | null>(null);
   const [communeId, setCommuneId] = useState<string | null>(null);
-  const [mode, setMode] = useState<'trajets' | 'demandes'>('trajets');
   const [trajets, setTrajets] = useState<Trajet[]>([]);
   const [demandes, setDemandes] = useState<Demande[]>([]);
   const [loadingTrajets, setLoadingTrajets] = useState(false);
@@ -175,8 +174,8 @@ export default function AccueilScreen({ navigation }: Props) {
   );
 
   useEffect(() => {
-    if (mode === 'trajets') void loadTrajets();
-  }, [mode, loadTrajets]);
+    void loadTrajets();
+  }, [loadTrajets]);
 
   const loadDemandes = useCallback(async () => {
     if (!universiteId || !communeId) return;
@@ -189,8 +188,43 @@ export default function AccueilScreen({ navigation }: Props) {
   }, [universiteId, communeId]);
 
   useEffect(() => {
-    if (mode === 'demandes') void loadDemandes();
-  }, [mode, loadDemandes]);
+    void loadDemandes();
+  }, [loadDemandes]);
+
+  // Fusion visuelle (pas de fusion des modeles) : "trajets" (deja confirmes,
+  // chauffeur+vehicule+prix garantis) et "demandes" (en attente d'un
+  // chauffeur) sont affiches dans un seul flux trie par heure de depart,
+  // avec un badge distinct par carte -- separer les deux dans 2 onglets
+  // portait a confusion (retour utilisateur direct).
+  type FeedItem =
+    | { kind: 'trajet'; id: string; heure: string; trajet: Trajet }
+    | { kind: 'demande'; id: string; heure: string; demande: Demande };
+
+  const feed = useMemo<FeedItem[]>(() => {
+    const items: FeedItem[] = [
+      ...trajets.map((t) => ({
+        kind: 'trajet' as const,
+        id: `t-${t.id}`,
+        heure: t.heure,
+        trajet: t,
+      })),
+      ...demandes.map((d) => ({
+        kind: 'demande' as const,
+        id: `d-${d.id}`,
+        heure: d.heure,
+        demande: d,
+      })),
+    ];
+    items.sort((a, b) => {
+      if (presDeMoi) {
+        const da = a.kind === 'trajet' ? a.trajet.distanceKm ?? Infinity : Infinity;
+        const db = b.kind === 'trajet' ? b.trajet.distanceKm ?? Infinity : Infinity;
+        if (da !== db) return da - db;
+      }
+      return new Date(a.heure).getTime() - new Date(b.heure).getTime();
+    });
+    return items;
+  }, [trajets, demandes, presDeMoi]);
 
   // Independant du filtre universite/commune -- les demandes que j'ai
   // creees/rejointes restent visibles meme si je change de filtre ensuite.
@@ -215,7 +249,7 @@ export default function AccueilScreen({ navigation }: Props) {
     try {
       await annulerDemande(demandeId);
       loadMesDemandes();
-      if (mode === 'demandes') void loadDemandes();
+      void loadDemandes();
     } catch (e) {
       setAnnulerError(extractErrorMessage(e, "L'annulation a échoué."));
     } finally {
@@ -290,20 +324,9 @@ export default function AccueilScreen({ navigation }: Props) {
         <MutedText style={styles.caption}>
           Université de destination · Commune de départ
         </MutedText>
-
-        <View style={styles.segRow}>
-          <SegmentedControl
-            options={[
-              { value: 'trajets', label: 'Trajets disponibles' },
-              { value: 'demandes', label: 'Créer une demande' },
-            ]}
-            value={mode}
-            onChange={(value) => setMode(value as 'trajets' | 'demandes')}
-          />
-        </View>
       </View>
 
-      {mode === 'demandes' && mesDemandes.length > 0 ? (
+      {mesDemandes.length > 0 ? (
         <View style={styles.mesDemandesSection}>
           <H5>Mes demandes en cours</H5>
           {annulerError ? <Text style={styles.error}>{annulerError}</Text> : null}
@@ -345,131 +368,117 @@ export default function AccueilScreen({ navigation }: Props) {
 
       {ready ? (
         <View style={styles.body}>
-          {mode === 'trajets' ? (
-            <>
-              <View style={styles.segRow}>
-                <SegmentedControl
-                  options={[
-                    { value: 'tous', label: 'Tous les trajets' },
-                    { value: 'pres', label: 'Près de moi (POI)' },
-                  ]}
-                  value={presDeMoi ? 'pres' : 'tous'}
-                  onChange={(value) => void handlePresDeMoiChange(value)}
-                />
-              </View>
-              {locationError ? (
-                <Text style={styles.error}>{locationError}</Text>
-              ) : null}
+          <View style={styles.segRow}>
+            <SegmentedControl
+              options={[
+                { value: 'tous', label: 'Tous' },
+                { value: 'pres', label: 'Près de moi (POI)' },
+              ]}
+              value={presDeMoi ? 'pres' : 'tous'}
+              onChange={(value) => void handlePresDeMoiChange(value)}
+            />
+          </View>
+          {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
+          {rejoindreError ? <Text style={styles.error}>{rejoindreError}</Text> : null}
 
-              {loadingTrajets ? (
-                <ActivityIndicator color={colors.accent} style={styles.loader} />
-              ) : (
-                <FlatList
-                  data={trajets}
-                  keyExtractor={(item) => item.id}
-                  contentContainerStyle={styles.list}
-                  ListEmptyComponent={
-                    <MutedText style={styles.empty}>Aucun trajet pour le moment.</MutedText>
-                  }
-                  renderItem={({ item }) => (
-                    <TouchableOpacity
-                      onPress={() =>
-                        navigation.navigate('TrajetDetail', { trajetId: item.id })
-                      }
-                    >
-                      <Card style={styles.card}>
-                        <View style={styles.rowBetween}>
-                          <View style={styles.tagRow}>
-                            <Tag variant="neutral" label="Conducteur" />
-                            {item.conducteur.verifie ? (
-                              <Tag variant="outline" label="Vérifié" />
-                            ) : null}
-                          </View>
-                          <Text style={styles.time}>
-                            {new Date(item.heure).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </Text>
-                        </View>
-                        <View style={styles.titleRow}>
-                          <H5
-                            style={styles.titleText}
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                          >
-                            {item.pointDeRdv.nom}
-                          </H5>
-                          <ArrowRightIcon color={colors.text} />
-                          <H5
-                            style={styles.titleText}
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                          >
-                            {item.universite.nom}
-                          </H5>
-                        </View>
-                        <View style={styles.metaRow}>
-                          <MutedText style={styles.metaText}>
-                            {item.conducteur.nom ?? item.conducteur.prenom ?? 'Conducteur'}
-                          </MutedText>
-                          {item.conducteur.note !== null ? (
-                            <View style={styles.metaInline}>
-                              <StarIcon />
-                              <MutedText style={styles.metaText}>
-                                {item.conducteur.note.toFixed(1)}
-                              </MutedText>
-                            </View>
+          {loadingTrajets || loadingDemandes ? (
+            <ActivityIndicator color={colors.accent} style={styles.loader} />
+          ) : (
+            <FlatList
+              data={feed}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.list}
+              ListEmptyComponent={
+                <MutedText style={styles.empty}>
+                  Aucun trajet ni demande pour le moment.
+                </MutedText>
+              }
+              renderItem={({ item }) =>
+                item.kind === 'trajet' ? (
+                  <TouchableOpacity
+                    onPress={() =>
+                      navigation.navigate('TrajetDetail', { trajetId: item.trajet.id })
+                    }
+                  >
+                    <Card style={styles.card}>
+                      <View style={styles.rowBetween}>
+                        <View style={styles.tagRow}>
+                          <Tag variant="accent" label="Confirmé" />
+                          {item.trajet.conducteur.verifie ? (
+                            <Tag variant="outline" label="Vérifié" />
                           ) : null}
                         </View>
-                        <View style={styles.rowBetween}>
-                          <MutedText>{item.places} places</MutedText>
-                          <Text style={styles.price}>{item.prixTotal} FCFA</Text>
-                        </View>
-                        <Button
-                          title="Réserver"
-                          variant="secondary"
-                          block
-                          onPress={() =>
-                            navigation.navigate('TrajetDetail', { trajetId: item.id })
-                          }
-                        />
-                      </Card>
-                    </TouchableOpacity>
-                  )}
-                />
-              )}
-            </>
-          ) : (
-            <>
-              {rejoindreError ? (
-                <Text style={styles.error}>{rejoindreError}</Text>
-              ) : null}
-
-              {loadingDemandes ? (
-                <ActivityIndicator color={colors.accent} style={styles.loader} />
-              ) : (
-                <FlatList
-                  data={demandes}
-                  keyExtractor={(item) => item.id}
-                  contentContainerStyle={styles.list}
-                  ListHeaderComponent={<H5 style={styles.sectionHeader}>Rejoindre une demande</H5>}
-                  ListEmptyComponent={
-                    <MutedText style={styles.empty}>Aucune demande pour le moment.</MutedText>
-                  }
-                  renderItem={({ item }) => {
-                    const nom = getDisplayName(item.createur.nom, item.createur.prenom, 'Étudiant');
+                        <Text style={styles.time}>
+                          {new Date(item.trajet.heure).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </Text>
+                      </View>
+                      <View style={styles.titleRow}>
+                        <H5
+                          style={styles.titleText}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {item.trajet.pointDeRdv.nom}
+                        </H5>
+                        <ArrowRightIcon color={colors.text} />
+                        <H5
+                          style={styles.titleText}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {item.trajet.universite.nom}
+                        </H5>
+                      </View>
+                      <View style={styles.metaRow}>
+                        <MutedText style={styles.metaText}>
+                          {item.trajet.conducteur.nom ?? item.trajet.conducteur.prenom ?? 'Conducteur'}
+                        </MutedText>
+                        {item.trajet.conducteur.note !== null ? (
+                          <View style={styles.metaInline}>
+                            <StarIcon />
+                            <MutedText style={styles.metaText}>
+                              {item.trajet.conducteur.note.toFixed(1)}
+                            </MutedText>
+                          </View>
+                        ) : null}
+                      </View>
+                      <View style={styles.rowBetween}>
+                        <MutedText>{item.trajet.places} places</MutedText>
+                        <Text style={styles.price}>{item.trajet.prixTotal} FCFA</Text>
+                      </View>
+                      <Button
+                        title="Réserver"
+                        variant="secondary"
+                        block
+                        onPress={() =>
+                          navigation.navigate('TrajetDetail', { trajetId: item.trajet.id })
+                        }
+                      />
+                    </Card>
+                  </TouchableOpacity>
+                ) : (
+                  (() => {
+                    const nom = getDisplayName(
+                      item.demande.createur.nom,
+                      item.demande.createur.prenom,
+                      'Étudiant',
+                    );
                     return (
                       <TouchableOpacity
                         onPress={() =>
-                          navigation.navigate('PointDeRegroupement', { demandeId: item.id })
+                          navigation.navigate('PointDeRegroupement', {
+                            demandeId: item.demande.id,
+                          })
                         }
                       >
                         <Card style={styles.card}>
                           <View style={styles.rowBetween}>
-                            <Tag variant="accent" label="Demande groupée" />
+                            <Tag variant="outline" label="En attente de chauffeur" />
                             <Text style={styles.time}>
-                              {new Date(item.heure).toLocaleTimeString([], {
+                              {new Date(item.demande.heure).toLocaleTimeString([], {
                                 hour: '2-digit',
                                 minute: '2-digit',
                               })}
@@ -477,53 +486,50 @@ export default function AccueilScreen({ navigation }: Props) {
                           </View>
                           <Avatar initial={nom.charAt(0)} size={24} background={colors.accent300} color={colors.text} />
                           <MutedText>
-                            {item.placesRestantes > 0
-                              ? `${item.placesRestantes} place${item.placesRestantes > 1 ? 's' : ''} restante${item.placesRestantes > 1 ? 's' : ''}`
+                            {item.demande.placesRestantes > 0
+                              ? `${item.demande.placesRestantes} place${item.demande.placesRestantes > 1 ? 's' : ''} restante${item.demande.placesRestantes > 1 ? 's' : ''}`
                               : 'Groupe complet'}{' '}
-                            · {item.cotisation} FCFA/pers.
+                            · {item.demande.cotisation} FCFA/pers.
                           </MutedText>
-                          {item.dejaRejoint ? (
+                          {item.demande.dejaRejoint ? (
                             <Button title="Déjà rejoint" variant="secondary" block disabled />
                           ) : (
                             <Button
                               title="Rejoindre"
                               block
-                              loading={rejoindrePendingId === item.id}
-                              onPress={() => void handleRejoindre(item.id)}
+                              loading={rejoindrePendingId === item.demande.id}
+                              onPress={() => void handleRejoindre(item.demande.id)}
                             />
                           )}
                         </Card>
                       </TouchableOpacity>
                     );
-                  }}
-                />
-              )}
-            </>
+                  })()
+                )
+              }
+            />
           )}
         </View>
       ) : (
         <View style={styles.body}>
           <MutedText style={styles.empty}>
-            {mode === 'trajets'
-              ? 'Choisis ton université et ta commune pour voir les trajets disponibles.'
-              : 'Choisis ton université et ta commune pour créer ou rejoindre un trajet.'}
+            Choisis ton université et ta commune pour voir les trajets et
+            demandes disponibles.
           </MutedText>
         </View>
       )}
 
-      {mode === 'demandes' ? (
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={() =>
-            navigation.navigate('CreerDemande', {
-              universiteId: universiteId ?? undefined,
-              communeId: communeId ?? undefined,
-            })
-          }
-        >
-          <PlusIcon />
-        </TouchableOpacity>
-      ) : null}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() =>
+          navigation.navigate('CreerDemande', {
+            universiteId: universiteId ?? undefined,
+            communeId: communeId ?? undefined,
+          })
+        }
+      >
+        <PlusIcon />
+      </TouchableOpacity>
 
       {joinModalDemandeId && communeId ? (
         <RejoindrePositionModal
@@ -620,9 +626,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingBottom: 80,
     gap: 12,
-  },
-  sectionHeader: {
-    marginBottom: -4,
   },
   card: {
     marginBottom: 0,

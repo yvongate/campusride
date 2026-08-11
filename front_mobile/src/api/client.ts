@@ -49,6 +49,7 @@ export interface Profile {
   telephone: string;
   note: number | null;
   conducteurStatut: string | null;
+  verificationStatut: string | null;
 }
 
 export async function getProfile(): Promise<Profile> {
@@ -56,17 +57,14 @@ export async function getProfile(): Promise<Profile> {
   return res.data;
 }
 
+// Le selfie n'est plus demande ici -- il vient de la verification d'identite
+// generale (CNI + selfie), deja validee avant d'atteindre cet ecran (voir
+// submitVerificationIdentite ci-dessous).
 export async function submitConducteurRequest(
-  selfieUri: string,
   permisUri: string,
   matriculeVehicule: string,
 ): Promise<void> {
   const formData = new FormData();
-  formData.append('selfie', {
-    uri: selfieUri,
-    name: 'selfie.jpg',
-    type: 'image/jpeg',
-  } as unknown as Blob);
   formData.append('permis', {
     uri: permisUri,
     name: 'permis.jpg',
@@ -77,6 +75,25 @@ export async function submitConducteurRequest(
   // Ne jamais forcer Content-Type ici : axios/React Native genere la
   // boundary multipart automatiquement a partir du FormData.
   await apiClient.post('/users/me/conducteur', formData);
+}
+
+export async function submitVerificationIdentite(
+  cniUri: string,
+  selfieUri: string,
+): Promise<void> {
+  const formData = new FormData();
+  formData.append('cni', {
+    uri: cniUri,
+    name: 'cni.jpg',
+    type: 'image/jpeg',
+  } as unknown as Blob);
+  formData.append('selfie', {
+    uri: selfieUri,
+    name: 'selfie.jpg',
+    type: 'image/jpeg',
+  } as unknown as Blob);
+
+  await apiClient.post('/users/me/verification', formData);
 }
 
 export interface Universite {

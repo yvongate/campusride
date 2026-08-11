@@ -19,12 +19,34 @@ async function requestOtpAndGetCode(
   return (res.body as { code: string }).code;
 }
 
+// Verification d'identite generale (Story 5.4) : requise avant de creer/
+// rejoindre une demande ou reserver un trajet -- creee directement en base
+// (comme pour les conducteurs) plutot que via le flux API complet, pour
+// garder les fixtures de ce fichier lisibles.
+async function creerVerificationValidee(
+  prisma: PrismaService,
+  telephone: string,
+): Promise<void> {
+  const user = await prisma.utilisateur.findUniqueOrThrow({
+    where: { telephone },
+  });
+  await prisma.verificationIdentite.create({
+    data: {
+      userId: user.id,
+      cni: 'e2e-cni.jpg',
+      selfie: 'e2e-selfie.jpg',
+      statut: 'valide',
+    },
+  });
+}
+
 describe('Demandes (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let demandesService: DemandesService;
   let adminToken: string;
   let etudiantToken: string;
+  let etudiant2Token: string;
   let conducteurToken: string;
   let universiteId: string;
   let communeId: string;
@@ -33,6 +55,10 @@ describe('Demandes (e2e)', () => {
   const ADMIN_EMAIL = 'admin-demandes-e2e@campusride.ci';
   const ADMIN_PASSWORD = 'un-mot-de-passe-suffisamment-long';
   const ETUDIANT_PHONE = '+2250700000070';
+  // Un seul createur ne peut avoir qu'une demande active a la fois (Story
+  // 4.6) -- ce second etudiant sert uniquement au test qui a besoin de 2
+  // demandes "ouverte" simultanees pour verifier le filtre de listage.
+  const ETUDIANT2_PHONE = '+2250700000077';
   const CONDUCTEUR_PHONE = '+2250700000079';
   const TINY_JPEG = Buffer.from([
     0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0xff, 0xd9,
@@ -49,17 +75,23 @@ describe('Demandes (e2e)', () => {
       where: { utilisateur: { telephone: CONDUCTEUR_PHONE } },
     });
     await prisma.verificationIdentite.deleteMany({
-      where: { utilisateur: { telephone: CONDUCTEUR_PHONE } },
+      where: {
+        utilisateur: {
+          telephone: { in: [CONDUCTEUR_PHONE, ETUDIANT_PHONE, ETUDIANT2_PHONE] },
+        },
+      },
     });
     await prisma.participation.deleteMany({
-      where: { utilisateur: { telephone: ETUDIANT_PHONE } },
+      where: { utilisateur: { telephone: { in: [ETUDIANT_PHONE, ETUDIANT2_PHONE] } } },
     });
     await prisma.demande.deleteMany({
-      where: { createur: { telephone: ETUDIANT_PHONE } },
+      where: { createur: { telephone: { in: [ETUDIANT_PHONE, ETUDIANT2_PHONE] } } },
     });
     await prisma.utilisateur.deleteMany({ where: { email: ADMIN_EMAIL } });
     await prisma.utilisateur.deleteMany({
-      where: { telephone: { in: [ETUDIANT_PHONE, CONDUCTEUR_PHONE] } },
+      where: {
+        telephone: { in: [ETUDIANT_PHONE, ETUDIANT2_PHONE, CONDUCTEUR_PHONE] },
+      },
     });
     await prisma.pointInteret.deleteMany({
       where: { nom: { startsWith: 'E2E ' } },
@@ -140,6 +172,16 @@ describe('Demandes (e2e)', () => {
       .expect(200);
     etudiantToken = (etudiantVerifyRes.body as { accessToken: string })
       .accessToken;
+    await creerVerificationValidee(prisma, ETUDIANT_PHONE);
+
+    const code2 = await requestOtpAndGetCode(app, ETUDIANT2_PHONE);
+    const etudiant2VerifyRes = await request(app.getHttpServer())
+      .post('/auth/otp/verify')
+      .send({ phone: ETUDIANT2_PHONE, code: code2 })
+      .expect(200);
+    etudiant2Token = (etudiant2VerifyRes.body as { accessToken: string })
+      .accessToken;
+    await creerVerificationValidee(prisma, ETUDIANT2_PHONE);
 
     // Conducteur valide (flux reel OTP -> demande -> validation admin, meme
     // pattern que trajets.e2e-spec.ts) -- necessaire pour la Story 4.5
@@ -151,18 +193,7 @@ describe('Demandes (e2e)', () => {
       .expect(200);
     conducteurToken = (conducteurVerifyRes.body as { accessToken: string })
       .accessToken;
-
-    const conducteurUser = await prisma.utilisateur.findUniqueOrThrow({
-      where: { telephone: CONDUCTEUR_PHONE },
-    });
-    await prisma.verificationIdentite.create({
-      data: {
-        userId: conducteurUser.id,
-        cni: 'e2e-cni.jpg',
-        selfie: 'e2e-selfie.jpg',
-        statut: 'valide',
-      },
-    });
+    await creerVerificationValidee(prisma, CONDUCTEUR_PHONE);
 
     await request(app.getHttpServer())
       .post('/users/me/conducteur')
@@ -237,6 +268,13 @@ describe('Demandes (e2e)', () => {
     expect(participation.positionLat).toBe(5.36);
     expect(participation.positionLng).toBe(-3.98);
     expect(participation.statut).toBe('confirmee');
+
+    // Libere l'etudiant pour les tests suivants (un seul createur ne peut
+    // avoir qu'une demande active a la fois, Story 4.6).
+    await request(app.getHttpServer())
+      .post(`/demandes/${demandeId}/annuler`)
+      .set('Authorization', `Bearer ${etudiantToken}`)
+      .expect(201);
   });
 
   it('creates a Participation with the POI coordinates when chezMoi is false', async () => {
@@ -260,6 +298,11 @@ describe('Demandes (e2e)', () => {
     });
     expect(participation.positionLat).toBe(5.36);
     expect(participation.positionLng).toBe(-3.98);
+
+    await request(app.getHttpServer())
+      .post(`/demandes/${demandeId}/annuler`)
+      .set('Authorization', `Bearer ${etudiantToken}`)
+      .expect(201);
   });
 
   it('rejects chezMoi false without a poiId', async () => {
@@ -278,6 +321,40 @@ describe('Demandes (e2e)', () => {
   });
 
   it('GET /demandes filters by universite/commune and only returns "ouverte" demandes', async () => {
+    // Un seul createur ne peut avoir qu'une demande "ouverte" a la fois
+    // (Story 4.6) -- ce test verifie le filtre sur >= 2 demandes
+    // simultanees, donc il en cree une avec un second etudiant.
+    const createRes1 = await request(app.getHttpServer())
+      .post('/demandes')
+      .set('Authorization', `Bearer ${etudiantToken}`)
+      .send({
+        universiteId,
+        communeId,
+        heure: '2026-09-03T08:00:00.000Z',
+        placesRecherchees: 2,
+        cotisation: 300,
+        chezMoi: true,
+        lat: 5.36,
+        lng: -3.98,
+      })
+      .expect(201);
+    const demandeId1 = (createRes1.body as { id: string }).id;
+    const createRes2 = await request(app.getHttpServer())
+      .post('/demandes')
+      .set('Authorization', `Bearer ${etudiant2Token}`)
+      .send({
+        universiteId,
+        communeId,
+        heure: '2026-09-03T09:00:00.000Z',
+        placesRecherchees: 2,
+        cotisation: 300,
+        chezMoi: true,
+        lat: 5.36,
+        lng: -3.98,
+      })
+      .expect(201);
+    const demandeId2 = (createRes2.body as { id: string }).id;
+
     const res = await request(app.getHttpServer())
       .get('/demandes')
       .set('Authorization', `Bearer ${etudiantToken}`)
@@ -294,6 +371,15 @@ describe('Demandes (e2e)', () => {
       expect(demande.statut).toBe('ouverte');
       expect(typeof demande.placesRestantes).toBe('number');
     }
+
+    await request(app.getHttpServer())
+      .post(`/demandes/${demandeId1}/annuler`)
+      .set('Authorization', `Bearer ${etudiantToken}`)
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/demandes/${demandeId2}/annuler`)
+      .set('Authorization', `Bearer ${etudiant2Token}`)
+      .expect(201);
   });
 
   it('GET /demandes/mine returns demandes where the caller has a confirmed participation', async () => {
@@ -330,10 +416,18 @@ describe('Demandes (e2e)', () => {
           .send({ phone, code })
           .expect(200);
         setToken((verifyRes.body as { accessToken: string }).accessToken);
+        await creerVerificationValidee(prisma, phone);
       }
     }, 15000);
 
     afterAll(async () => {
+      await prisma.verificationIdentite.deleteMany({
+        where: {
+          utilisateur: {
+            telephone: { in: [PARTICIPANT2_PHONE, PARTICIPANT3_PHONE] },
+          },
+        },
+      });
       await prisma.participation.deleteMany({
         where: {
           utilisateur: {
@@ -392,6 +486,11 @@ describe('Demandes (e2e)', () => {
         .set('Authorization', `Bearer ${etudiantToken}`)
         .send({ lat: 5.36, lng: -3.98 })
         .expect(409);
+
+      await request(app.getHttpServer())
+        .post(`/demandes/${demandeId}/annuler`)
+        .set('Authorization', `Bearer ${etudiantToken}`)
+        .expect(201);
     });
 
     it('returns 404 when the demande does not exist', async () => {
@@ -402,7 +501,7 @@ describe('Demandes (e2e)', () => {
         .expect(404);
     });
 
-    it('reaches quota but leaves poiId untouched when the nearest POI is too far', async () => {
+    it('reaches quota and still suggests the nearest POI even when it is far from the centroid', async () => {
       const createRes = await request(app.getHttpServer())
         .post('/demandes')
         .set('Authorization', `Bearer ${etudiantToken}`)
@@ -412,8 +511,9 @@ describe('Demandes (e2e)', () => {
           heure: '2026-09-05T07:00:00.000Z',
           placesRecherchees: 2,
           cotisation: 500,
-          // Loin de l'unique POI de cette commune (5.36, -3.98) --
-          // aucun point fiable ne devrait etre suggere (> 1,5km).
+          // Loin de l'unique POI de cette commune (5.36, -3.98) -- le POI
+          // le plus proche est quand meme suggere, peu importe la distance
+          // (Story 4.3, plus de seuil de distance).
           chezMoi: true,
           lat: 6.5,
           lng: -5.5,
@@ -435,7 +535,12 @@ describe('Demandes (e2e)', () => {
         where: { id: demandeId },
       });
       expect(demandeApres.statut).toBe('quota_atteint');
-      expect(demandeApres.poiId).toBeNull();
+      expect(demandeApres.poiId).toBe(poiId);
+
+      await request(app.getHttpServer())
+        .post(`/demandes/${demandeId}/annuler`)
+        .set('Authorization', `Bearer ${etudiantToken}`)
+        .expect(201);
     });
   });
 
@@ -491,39 +596,79 @@ describe('Demandes (e2e)', () => {
         where: { id: demandeId },
       });
       expect(demandeApres.statut).toBe('ouverte');
+
+      await request(app.getHttpServer())
+        .post(`/demandes/${demandeId}/annuler`)
+        .set('Authorization', `Bearer ${etudiantToken}`)
+        .expect(201);
     });
   });
 
   describe('Acceptation par un conducteur (e2e)', () => {
     const PARTICIPANT4_PHONE = '+2250700000073';
+    // Une fois acceptee, une demande passe "acceptee" -- statut definitif
+    // qui ne se libere jamais (contrairement a "annulee"/"expiree"), donc
+    // ce test utilise un createur dedie plutot que le etudiantToken partage
+    // par le reste du fichier (Story 4.6 -- un seul createur ne peut avoir
+    // qu'une demande active a la fois).
+    const CREATEUR_ACCEPTATION_PHONE = '+2250700000074';
     let participant4Token: string;
+    let createurAcceptationToken: string;
 
     beforeAll(async () => {
-      const code = await requestOtpAndGetCode(app, PARTICIPANT4_PHONE);
-      const verifyRes = await request(app.getHttpServer())
-        .post('/auth/otp/verify')
-        .send({ phone: PARTICIPANT4_PHONE, code })
-        .expect(200);
-      participant4Token = (verifyRes.body as { accessToken: string })
-        .accessToken;
+      for (const [phone, setToken] of [
+        [PARTICIPANT4_PHONE, (t: string) => (participant4Token = t)],
+        [
+          CREATEUR_ACCEPTATION_PHONE,
+          (t: string) => (createurAcceptationToken = t),
+        ],
+      ] as const) {
+        const code = await requestOtpAndGetCode(app, phone);
+        const verifyRes = await request(app.getHttpServer())
+          .post('/auth/otp/verify')
+          .send({ phone, code })
+          .expect(200);
+        setToken((verifyRes.body as { accessToken: string }).accessToken);
+        await creerVerificationValidee(prisma, phone);
+      }
     }, 15000);
 
     afterAll(async () => {
       await prisma.reservation.deleteMany({
-        where: { passager: { telephone: PARTICIPANT4_PHONE } },
+        where: {
+          passager: {
+            telephone: { in: [PARTICIPANT4_PHONE, CREATEUR_ACCEPTATION_PHONE] },
+          },
+        },
+      });
+      await prisma.verificationIdentite.deleteMany({
+        where: {
+          utilisateur: {
+            telephone: { in: [PARTICIPANT4_PHONE, CREATEUR_ACCEPTATION_PHONE] },
+          },
+        },
       });
       await prisma.participation.deleteMany({
-        where: { utilisateur: { telephone: PARTICIPANT4_PHONE } },
+        where: {
+          utilisateur: {
+            telephone: { in: [PARTICIPANT4_PHONE, CREATEUR_ACCEPTATION_PHONE] },
+          },
+        },
+      });
+      await prisma.demande.deleteMany({
+        where: { createur: { telephone: CREATEUR_ACCEPTATION_PHONE } },
       });
       await prisma.utilisateur.deleteMany({
-        where: { telephone: PARTICIPANT4_PHONE },
+        where: {
+          telephone: { in: [PARTICIPANT4_PHONE, CREATEUR_ACCEPTATION_PHONE] },
+        },
       });
     });
 
     it('accepts a quota-reached demande, creating a Trajet mode "A" with a Reservation per participant', async () => {
       const createRes = await request(app.getHttpServer())
         .post('/demandes')
-        .set('Authorization', `Bearer ${etudiantToken}`)
+        .set('Authorization', `Bearer ${createurAcceptationToken}`)
         .send({
           universiteId,
           communeId,
@@ -624,6 +769,11 @@ describe('Demandes (e2e)', () => {
         .post(`/demandes/${demandeId}/accepter`)
         .set('Authorization', `Bearer ${conducteurToken}`)
         .expect(409);
+
+      await request(app.getHttpServer())
+        .post(`/demandes/${demandeId}/annuler`)
+        .set('Authorization', `Bearer ${etudiantToken}`)
+        .expect(201);
     });
   });
 

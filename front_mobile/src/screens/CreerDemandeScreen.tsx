@@ -7,6 +7,7 @@ import type { RootStackParamList } from '../navigation/types';
 import { colors, fonts } from '../theme';
 import {
   creerDemande,
+  getProfile,
   listCommunes,
   listPointsInteret,
   listQuartiers,
@@ -87,6 +88,17 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
   const [loadingReferentiel, setLoadingReferentiel] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verificationValidee, setVerificationValidee] = useState<boolean | null>(
+    null,
+  );
+
+  useEffect(() => {
+    getProfile()
+      .then((profile) =>
+        setVerificationValidee(profile.verificationStatut === 'valide'),
+      )
+      .catch(() => setVerificationValidee(false));
+  }, []);
 
   const loadReferentiel = useCallback(async () => {
     setLoadingReferentiel(true);
@@ -194,10 +206,28 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
     }
   }
 
-  if (loadingReferentiel) {
+  if (loadingReferentiel || verificationValidee === null) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={colors.accent} />
+      </View>
+    );
+  }
+
+  if (!verificationValidee) {
+    return (
+      <View style={styles.container}>
+        <ScreenHeader title="Créer une demande" onBack={() => navigation.goBack()} />
+        <View style={styles.centered}>
+          <Text style={styles.verifBlockedText}>
+            Vérifie d'abord ton identité (CNI + selfie) pour créer une
+            demande.
+          </Text>
+          <Button
+            title="Faire ma vérification"
+            onPress={() => navigation.navigate('VerificationIdentite')}
+          />
+        </View>
       </View>
     );
   }
@@ -371,6 +401,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 16,
+  },
+  verifBlockedText: {
+    fontFamily: fonts.body,
+    fontSize: 14,
+    color: colors.text,
+    textAlign: 'center',
   },
   content: {
     paddingHorizontal: 20,

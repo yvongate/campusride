@@ -7,6 +7,7 @@ const { Sider, Content } = Layout;
 
 const NAV_ITEMS = [
   { key: '/dashboard', label: 'Tableau de bord' },
+  { key: '/verifications', label: "Vérifications d'identité" },
   { key: '/conducteurs', label: 'Conducteurs' },
   { key: '/universites', label: 'Universités' },
   { key: '/communes-quartiers', label: 'Communes / Quartiers' },

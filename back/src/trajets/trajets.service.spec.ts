@@ -36,6 +36,7 @@ describe('TrajetsService', () => {
   let signalementFindManyMock: jest.Mock;
   let signalementFindUniqueMock: jest.Mock;
   let signalementUpdateMock: jest.Mock;
+  let verificationIdentiteFindFirstMock: jest.Mock;
 
   const validDto = {
     universiteId: 'univ-1',
@@ -69,6 +70,9 @@ describe('TrajetsService', () => {
     signalementFindManyMock = jest.fn();
     signalementFindUniqueMock = jest.fn();
     signalementUpdateMock = jest.fn();
+    verificationIdentiteFindFirstMock = jest
+      .fn()
+      .mockResolvedValue({ id: 'verif-1', userId: 'passager-1', statut: 'valide' });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -85,6 +89,9 @@ describe('TrajetsService', () => {
             },
             documentsConducteur: {
               findFirst: documentsConducteurFindFirstMock,
+            },
+            verificationIdentite: {
+              findFirst: verificationIdentiteFindFirstMock,
             },
             signalement: {
               create: signalementCreateMock,
@@ -324,6 +331,16 @@ describe('TrajetsService', () => {
   });
 
   describe('reserverTrajet', () => {
+    it('throws ConflictException when the passager has no validated identity verification', async () => {
+      verificationIdentiteFindFirstMock.mockResolvedValueOnce(null);
+
+      await expect(
+        service.reserverTrajet('passager-1', 'trajet-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(trajetFindUniqueMock).not.toHaveBeenCalled();
+      expect(transactionMock).not.toHaveBeenCalled();
+    });
+
     it('throws NotFoundException when the trajet does not exist', async () => {
       trajetFindUniqueMock.mockResolvedValueOnce(null);
 

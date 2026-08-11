@@ -11,6 +11,7 @@ export type RootStackParamList = {
   VerificationOtp: { phone: string; code: string };
   MainTabs: undefined;
   InscriptionConducteur: undefined;
+  VerificationIdentite: undefined;
   TrajetDetail: { trajetId: string };
   Rencontre: { trajetId: string };
   PublierTrajet: undefined;

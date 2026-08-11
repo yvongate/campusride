@@ -94,6 +94,9 @@ export default function PointDeRegroupementScreen({ navigation, route }: Props) 
   const peutAnnuler =
     demande.createur.id === monId &&
     (demande.statut === 'ouverte' || demande.statut === 'quota_atteint');
+  const estExpiree = demande.statut === 'expiree';
+  const estAnnulee = demande.statut === 'annulee';
+  const estFermee = estExpiree || estAnnulee;
   const quotaAtteint = demande.placesConfirmees >= demande.placesRecherchees;
   const progress = Math.min(
     1,
@@ -111,10 +114,27 @@ export default function PointDeRegroupementScreen({ navigation, route }: Props) 
       />
 
       <ScrollView contentContainerStyle={styles.content}>
+        {estFermee ? (
+          <Card style={styles.fermeeCard}>
+            <H6 style={styles.fermeeTitle}>
+              {estExpiree ? 'Demande expirée' : 'Demande annulée'}
+            </H6>
+            <MutedText style={styles.fermeeBody}>
+              {estExpiree
+                ? "Personne n'a rejoint à temps avant le départ prévu -- cette demande est close."
+                : 'Le créateur a annulé cette demande -- elle ne recevra plus de participants.'}
+            </MutedText>
+          </Card>
+        ) : null}
+
         <View>
           <View style={styles.progressLabelRow}>
             <MutedText style={styles.progressLabel}>
-              {quotaAtteint ? 'QUOTA ATTEINT' : 'EN ATTENTE DE PARTICIPANTS'}
+              {estFermee
+                ? 'FERMÉE'
+                : quotaAtteint
+                  ? 'QUOTA ATTEINT'
+                  : 'EN ATTENTE DE PARTICIPANTS'}
             </MutedText>
             <MutedText style={styles.progressLabel}>
               {formatPlacesRestantes(demande.placesRecherchees, demande.placesConfirmees)}
@@ -162,6 +182,14 @@ export default function PointDeRegroupementScreen({ navigation, route }: Props) 
                 se retrouve facilement.
               </MutedText>
             </View>
+          </Card>
+        ) : estFermee ? (
+          <Card style={styles.waitingCard}>
+            <H6 style={styles.waitingTitle}>Aucun point de regroupement trouvé</H6>
+            <MutedText style={styles.waitingBody}>
+              Le quota n'a pas été atteint avant la fermeture de cette
+              demande.
+            </MutedText>
           </Card>
         ) : (
           <Card style={styles.waitingCard}>
@@ -232,6 +260,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  fermeeCard: {
+    backgroundColor: colors.neutral900,
+    gap: 4,
+  },
+  fermeeTitle: {
+    color: colors.background,
+  },
+  fermeeBody: {
+    color: colors.background,
+    opacity: 0.7,
   },
   centered: {
     flex: 1,

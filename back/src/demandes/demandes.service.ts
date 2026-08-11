@@ -13,11 +13,6 @@ import { TrajetsService } from '../trajets/trajets.service';
 import { CreateDemandeDto } from './dto/create-demande.dto';
 import { JoinDemandeDto } from './dto/join-demande.dto';
 
-// §5 du cahier des charges : "une distance maximale raisonnable (a definir
-// en configuration, par exemple 1,5 km)" -- valeur d'exemple du cahier des
-// charges reprise telle quelle, voir Story 4.3 Dev Notes.
-const MAX_DISTANCE_CENTROIDE_KM = 1.5;
-
 // Meme duree que OVERLAP_WINDOW_MS/LATE_CANCELLATION_WINDOW_MS/
 // PASSENGER_CANCELLATION_DEADLINE_MS (Stories 3.1/3.5/3.6) mais concept
 // distinct (§4.1 -- delai avant depart en dessous duquel une demande sans
@@ -34,7 +29,25 @@ export class DemandesService {
     private readonly trajetsService: TrajetsService,
   ) {}
 
+  // Verification d'identite generale (CNI + selfie, Story 5.4) : requise
+  // avant toute interaction reelle avec d'autres utilisateurs (creer/
+  // rejoindre une demande, reserver un trajet) -- pas seulement pour
+  // devenir conducteur (voir UsersService.createDemandeConducteur, meme
+  // garde-fou).
+  private async verifierIdentiteValidee(userId: string): Promise<void> {
+    const verification = await this.prisma.verificationIdentite.findFirst({
+      where: { userId, statut: 'valide' },
+    });
+    if (!verification) {
+      throw new ConflictException(
+        'Complete d’abord ta verification d’identite (CNI + selfie) avant d’interagir avec les demandes',
+      );
+    }
+  }
+
   async creerDemande(createurId: string, dto: CreateDemandeDto) {
+    await this.verifierIdentiteValidee(createurId);
+
     const universite = await this.prisma.universite.findUnique({
       where: { id: dto.universiteId },
     });
@@ -204,6 +217,8 @@ export class DemandesService {
     demandeId: string,
     dto: JoinDemandeDto,
   ) {
+    await this.verifierIdentiteValidee(userId);
+
     const demande = await this.prisma.demande.findUnique({
       where: { id: demandeId },
     });
@@ -289,24 +304,26 @@ export class DemandesService {
 
     const destinataires = participations.map((p) => p.userId);
 
-    if (poiProche && distanceMin <= MAX_DISTANCE_CENTROIDE_KM) {
+    if (poiProche) {
       await this.prisma.demande.update({
         where: { id: demandeId },
         data: { statut: 'quota_atteint', poiId: poiProche.id },
       });
       for (const userId of destinataires) {
         this.logger.log(
-          `notification: point de regroupement suggere (${poiProche.nom}) pour la demande ${demandeId}, participant ${userId}`,
+          `notification: point de regroupement suggere (${poiProche.nom}, ${distanceMin.toFixed(2)}km du centroide) pour la demande ${demandeId}, participant ${userId}`,
         );
       }
     } else {
+      // Aucun POI enregistre dans la commune de la demande -- cas limite,
+      // le seed couvre desormais toutes les communes d'Abidjan.
       await this.prisma.demande.update({
         where: { id: demandeId },
         data: { statut: 'quota_atteint' },
       });
       for (const userId of destinataires) {
         this.logger.log(
-          `notification: aucun point de regroupement fiable trouve pour la demande ${demandeId}, participant ${userId} invite a elargir sa recherche ou choisir manuellement`,
+          `notification: aucun point de regroupement disponible (commune sans POI) pour la demande ${demandeId}, participant ${userId} invite a choisir manuellement`,
         );
       }
     }

@@ -16,6 +16,7 @@ import OnboardingScreen from './src/screens/OnboardingScreen';
 import ConnexionScreen from './src/screens/ConnexionScreen';
 import VerificationOtpScreen from './src/screens/VerificationOtpScreen';
 import InscriptionConducteurScreen from './src/screens/InscriptionConducteurScreen';
+import VerificationIdentiteScreen from './src/screens/VerificationIdentiteScreen';
 import TrajetDetailScreen from './src/screens/TrajetDetailScreen';
 import RencontreScreen from './src/screens/RencontreScreen';
 import PublierTrajetScreen from './src/screens/PublierTrajetScreen';
@@ -66,6 +67,10 @@ export default function App() {
           <Stack.Screen
             name="InscriptionConducteur"
             component={InscriptionConducteurScreen}
+          />
+          <Stack.Screen
+            name="VerificationIdentite"
+            component={VerificationIdentiteScreen}
           />
           <Stack.Screen name="TrajetDetail" component={TrajetDetailScreen} />
           <Stack.Screen name="Rencontre" component={RencontreScreen} />

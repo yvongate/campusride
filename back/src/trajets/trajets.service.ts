@@ -233,7 +233,23 @@ export class TrajetsService {
     );
   }
 
+  // Verification d'identite generale (CNI + selfie, Story 5.4) : requise
+  // avant de reserver un trajet -- meme garde-fou que DemandesService pour
+  // creer/rejoindre une demande.
+  private async verifierIdentiteValidee(userId: string): Promise<void> {
+    const verification = await this.prisma.verificationIdentite.findFirst({
+      where: { userId, statut: 'valide' },
+    });
+    if (!verification) {
+      throw new ConflictException(
+        'Complete d’abord ta verification d’identite (CNI + selfie) avant de reserver un trajet',
+      );
+    }
+  }
+
   async reserverTrajet(passagerId: string, trajetId: string) {
+    await this.verifierIdentiteValidee(passagerId);
+
     const trajet = await this.prisma.trajet.findUnique({
       where: { id: trajetId },
     });

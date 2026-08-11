@@ -9,7 +9,6 @@ import type { MainTabsParamList, RootStackParamList } from '../navigation/types'
 import { colors, fonts } from '../theme';
 import { getProfile, Profile } from '../api/client';
 import { getDisplayName } from '../utils/profile';
-import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { ChevronLeftIcon, ChevronRightIcon } from '../components/icons';
 import { Tag } from '../components/Tag';
@@ -94,6 +93,9 @@ export default function ProfilScreen({ navigation }: Props) {
   const demandeRefusee = profile.conducteurStatut === 'refuse';
   const estConducteur = profile.conducteurStatut === 'valide';
   const roleLabel = estConducteur ? 'Conducteur' : 'Étudiant';
+  const verificationEnAttente = profile.verificationStatut === 'en attente';
+  const verificationRefusee = profile.verificationStatut === 'refuse';
+  const verificationValidee = profile.verificationStatut === 'valide';
 
   return (
     <View style={styles.container}>
@@ -105,12 +107,6 @@ export default function ProfilScreen({ navigation }: Props) {
         >
           <ChevronLeftIcon color={colors.text} />
         </TouchableOpacity>
-        <Avatar
-          initial={displayName.charAt(0)}
-          size={60}
-          background={estConducteur ? colors.text : colors.accent300}
-          color={estConducteur ? colors.background : colors.text}
-        />
         <H4 style={styles.name}>{displayName}</H4>
         <MutedText style={styles.meta}>
           {noteLabel} · {roleLabel}
@@ -121,6 +117,27 @@ export default function ProfilScreen({ navigation }: Props) {
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
+        <View style={styles.verifCard}>
+          <Text style={styles.verifTitle}>Vérification d'identité</Text>
+          {verificationValidee ? (
+            <Tag variant="outline" label="Identité vérifiée" />
+          ) : verificationEnAttente ? (
+            <Tag variant="neutral" label="En cours d'examen" />
+          ) : verificationRefusee ? (
+            <Tag variant="outline" label="Refusée" />
+          ) : (
+            <>
+              <Text style={styles.verifBody}>
+                CNI + selfie — nécessaire pour créer ou rejoindre un trajet.
+              </Text>
+              <Button
+                title="Faire ma vérification"
+                onPress={() => navigation.navigate('VerificationIdentite')}
+              />
+            </>
+          )}
+        </View>
+
         {estConducteur ? (
           <>
             <View style={styles.conducteurLinks}>
@@ -153,18 +170,22 @@ export default function ProfilScreen({ navigation }: Props) {
             <View style={styles.becomeDriverCard}>
               <Text style={styles.becomeDriverTitle}>Devenir conducteur</Text>
               <Text style={styles.becomeDriverBody}>
-                Selfie, carte d'identité et matricule véhicule — validation
-                sous 48h.
+                Permis de conduire et matricule véhicule — validation sous
+                48h.
               </Text>
               {demandeEnAttente ? (
                 <Tag variant="neutral" label="Demande en cours d'examen" />
               ) : demandeRefusee ? (
                 <Tag variant="outline" label="Demande refusée" />
-              ) : (
+              ) : verificationValidee ? (
                 <Button
                   title="Faire une demande"
                   onPress={() => navigation.navigate('InscriptionConducteur')}
                 />
+              ) : (
+                <Text style={styles.becomeDriverBody}>
+                  Termine d'abord ta vérification d'identité ci-dessus.
+                </Text>
               )}
             </View>
             <View style={styles.menu}>
@@ -222,6 +243,25 @@ const styles = StyleSheet.create({
   body: {
     padding: 20,
     gap: 14,
+  },
+  verifCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    padding: 16,
+    gap: 6,
+  },
+  verifTitle: {
+    fontFamily: fonts.headingSemiBold,
+    fontSize: 14.5,
+    color: colors.text,
+  },
+  verifBody: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: colors.text,
+    opacity: 0.7,
+    marginBottom: 6,
   },
   conducteurLinks: {
     gap: 10,
