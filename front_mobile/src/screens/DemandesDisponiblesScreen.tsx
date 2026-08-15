@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { AxiosError } from 'axios';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -14,9 +14,11 @@ import {
   Universite,
 } from '../api/client';
 import { getDisplayName } from '../utils/profile';
+import { useRefreshOnForeground } from '../hooks/useRefreshOnForeground';
 import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
+import { ErrorState } from '../components/ErrorState';
 import { PickerField } from '../components/PickerField';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { MutedText } from '../components/Typography';
@@ -39,12 +41,15 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
   const [communeId, setCommuneId] = useState<string | null>(null);
   const [demandes, setDemandes] = useState<DemandeDisponible[]>([]);
   const [loadingReferentiel, setLoadingReferentiel] = useState(true);
+  const [referentielError, setReferentielError] = useState<string | null>(null);
   const [loadingDemandes, setLoadingDemandes] = useState(false);
+  const [demandesError, setDemandesError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const loadReferentiel = useCallback(async () => {
     setLoadingReferentiel(true);
+    setReferentielError(null);
     try {
       const [universitesData, communesData] = await Promise.all([
         listUniversites(),
@@ -52,6 +57,10 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
       ]);
       setUniversites(universitesData);
       setCommunes(communesData);
+    } catch (e) {
+      setReferentielError(
+        extractErrorMessage(e, 'Impossible de charger les filtres.'),
+      );
     } finally {
       setLoadingReferentiel(false);
     }
@@ -64,8 +73,13 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
   const loadDemandes = useCallback(async () => {
     if (!universiteId || !communeId) return;
     setLoadingDemandes(true);
+    setDemandesError(null);
     try {
       setDemandes(await listerDemandesDisponibles(universiteId, communeId));
+    } catch (e) {
+      setDemandesError(
+        extractErrorMessage(e, 'Impossible de charger les demandes.'),
+      );
     } finally {
       setLoadingDemandes(false);
     }
@@ -74,6 +88,8 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
   useEffect(() => {
     void loadDemandes();
   }, [loadDemandes]);
+
+  useRefreshOnForeground(loadDemandes);
 
   async function handleAccepter(demandeId: string) {
     setError(null);
@@ -92,6 +108,17 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={colors.accent} />
+      </View>
+    );
+  }
+
+  if (referentielError) {
+    return (
+      <View style={styles.container}>
+        <ScreenHeader title="Demandes disponibles" onBack={() => navigation.goBack()} />
+        <View style={styles.centered}>
+          <ErrorState message={referentielError} onRetry={loadReferentiel} />
+        </View>
       </View>
     );
   }
@@ -123,18 +150,32 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {universiteId && communeId ? (
-        loadingDemandes ? (
+        loadingDemandes && demandes.length === 0 ? (
           <ActivityIndicator color={colors.accent} style={styles.loader} />
+        ) : demandesError && demandes.length === 0 ? (
+          <ErrorState message={demandesError} onRetry={loadDemandes} />
         ) : (
           <FlatList
             data={demandes}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
+            refreshControl={
+              <RefreshControl
+                refreshing={loadingDemandes}
+                onRefresh={loadDemandes}
+                tintColor={colors.accent}
+              />
+            }
             ListHeaderComponent={
-              <MutedText style={styles.count}>
-                {demandes.length} demande{demandes.length > 1 ? 's' : ''}{' '}
-                correspondent à ces filtres
-              </MutedText>
+              <>
+                {demandesError ? (
+                  <Text style={styles.error}>{demandesError}</Text>
+                ) : null}
+                <MutedText style={styles.count}>
+                  {demandes.length} demande{demandes.length > 1 ? 's' : ''}{' '}
+                  correspondent à ces filtres
+                </MutedText>
+              </>
             }
             ListEmptyComponent={
               <MutedText style={styles.empty}>Aucune demande disponible.</MutedText>

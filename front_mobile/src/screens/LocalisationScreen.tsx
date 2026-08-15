@@ -1,9 +1,9 @@
 import * as Location from 'expo-location';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
-import { colors } from '../theme';
+import { colors, fonts } from '../theme';
 import { Button } from '../components/Button';
 import { H3, MutedText } from '../components/Typography';
 
@@ -12,28 +12,45 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Localisation'>;
 // Ecran de "priming" avant le popup natif iOS -- explique pourquoi l'app
 // demande la position avant de la demander, plutot que le popup natif brut
 // et sans contexte (voir capture Yango fournie par l'utilisateur). Affiche
-// une seule fois, juste apres l'onboarding, avant la connexion.
+// une seule fois, juste apres avoir complete le profil (nom) a la premiere
+// connexion -- pas avant, l'app ne sait pas encore a qui elle parle.
 export default function LocalisationScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+
+  function goToMainTabs() {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'MainTabs' }],
+    });
+  }
 
   async function handlePartager() {
     await Location.requestForegroundPermissionsAsync();
     // Qu'elle soit accordee ou refusee, la position n'est necessaire que
     // pour des actions ponctuelles plus tard (Pres de moi, position GPS) --
     // pas un blocage pour utiliser l'app.
-    navigation.navigate('Connexion');
+    goToMainTabs();
   }
 
   return (
     <View style={styles.container}>
       <TouchableOpacity
         style={[styles.skip, { paddingTop: insets.top + 16 }]}
-        onPress={() => navigation.navigate('Connexion')}
+        onPress={goToMainTabs}
       >
         <MutedText style={styles.skipText}>Passer</MutedText>
       </TouchableOpacity>
 
       <View style={styles.content}>
+        <View style={styles.brandRow}>
+          <Image
+            source={require('../../assets/logo.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <H3 style={styles.brand}>CampusRide</H3>
+        </View>
+
         <H3 style={styles.title}>Active ta position pour aller plus vite</H3>
         <MutedText style={styles.subtitle}>
           On l'utilise pour te proposer les trajets et demandes les plus
@@ -70,6 +87,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 32,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 40,
+  },
+  logo: {
+    width: 28,
+    height: 28,
+  },
+  brand: {
+    fontFamily: fonts.heading,
   },
   title: {
     textAlign: 'center',

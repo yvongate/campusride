@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as Location from 'expo-location';
 import { AxiosError } from 'axios';
@@ -78,11 +78,20 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
   );
   const [locatingLoading, setLocatingLoading] = useState(false);
   const [dateHeure, setDateHeure] = useState(() => new Date());
-  // Nombre d'AUTRES personnes recherchees (le createur compte deja pour 1) --
-  // envoye au backend comme placesRecherchees = autresPersonnes + 1, car le
-  // backend compte le groupe total (createur inclus). Max 3 => 4 passagers
-  // au total dans la voiture (sans compter le chauffeur).
+  // Le createur n'est pas forcement seul (ex. deja avec un frere/une amie) --
+  // dejaPresents = combien sont deja ensemble (createur inclus), separement
+  // du nombre d'AUTRES personnes recherchees. placesRecherchees envoye au
+  // backend = dejaPresents + autresPersonnes (le backend compte le groupe
+  // total). Capacite voiture = 4 passagers max (sans compter le chauffeur,
+  // meme constante que PublierTrajetScreen).
+  const PLACES_MAX = 4;
+  const [dejaPresents, setDejaPresents] = useState(1);
   const [autresPersonnes, setAutresPersonnes] = useState(2);
+  const autresPersonnesMax = Math.max(1, PLACES_MAX - dejaPresents);
+
+  useEffect(() => {
+    setAutresPersonnes((current) => Math.min(current, autresPersonnesMax));
+  }, [autresPersonnesMax]);
   const [cotisation, setCotisation] = useState('');
   const [loadingReferentiel, setLoadingReferentiel] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -173,8 +182,7 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
         universiteId,
         communeId,
         heure: dateHeure.toISOString(),
-        // +1 : le backend compte le groupe total (createur inclus).
-        placesRecherchees: autresPersonnes + 1,
+        placesRecherchees: dejaPresents + autresPersonnes,
         cotisation: cotisationNum,
         chezMoi,
         ...(chezMoi
@@ -328,13 +336,28 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
           </View>
         </View>
 
+        <Field label={`Vous êtes déjà ${dejaPresents} (toi inclus)`}>
+          <Stepper
+            value={dejaPresents}
+            onChange={setDejaPresents}
+            min={1}
+            max={PLACES_MAX - 1}
+          />
+        </Field>
+
         <Field
-          label={`Je recherche ${autresPersonnes} personne${autresPersonnes > 1 ? 's' : ''}`}
+          label={`Je recherche ${autresPersonnes} personne${autresPersonnes > 1 ? 's' : ''} de plus`}
         >
-          <Stepper value={autresPersonnes} onChange={setAutresPersonnes} max={3} />
+          <Stepper
+            value={autresPersonnes}
+            onChange={setAutresPersonnes}
+            min={1}
+            max={autresPersonnesMax}
+          />
         </Field>
         <MutedText style={styles.placesHint}>
-          Toi + {autresPersonnes} = {autresPersonnes + 1} personnes dans la voiture (chauffeur non compris).
+          {dejaPresents} + {autresPersonnes} = {dejaPresents + autresPersonnes} personnes
+          dans la voiture (chauffeur non compris).
         </MutedText>
 
         <Field label="Cotisation par personne">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AxiosError } from 'axios';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -9,6 +9,7 @@ import { getDisplayName } from '../utils/profile';
 import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
+import { ErrorState } from '../components/ErrorState';
 import { Tag } from '../components/Tag';
 import { ScreenFooter } from '../components/ScreenFooter';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -65,8 +66,11 @@ export default function TrajetDetailScreen({ navigation, route }: Props) {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
+      <View style={styles.container}>
         <ScreenHeader title="Détail du trajet" onBack={() => navigation.goBack()} />
+        <View style={styles.centered}>
+          <ActivityIndicator color={colors.accent} />
+        </View>
       </View>
     );
   }
@@ -76,7 +80,7 @@ export default function TrajetDetailScreen({ navigation, route }: Props) {
       <View style={styles.container}>
         <ScreenHeader title="Détail du trajet" onBack={() => navigation.goBack()} />
         <View style={styles.centered}>
-          <MutedText>{error ?? 'Trajet introuvable.'}</MutedText>
+          <ErrorState message={error ?? 'Trajet introuvable.'} onRetry={load} />
         </View>
       </View>
     );

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Modal,
+  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -33,10 +34,12 @@ import {
 } from '../api/client';
 import { formatPlacesRestantes } from '../utils/places';
 import { getDisplayName } from '../utils/profile';
+import { useRefreshOnForeground } from '../hooks/useRefreshOnForeground';
 import { Avatar } from '../components/Avatar';
 import { BurgerButton } from '../components/BurgerButton';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
+import { ErrorState } from '../components/ErrorState';
 import { ArrowRightIcon, ChevronDownIcon, PlusIcon, StarIcon } from '../components/icons';
 import { RejoindrePositionModal } from '../components/RejoindrePositionModal';
 import { SegmentedControl } from '../components/SegmentedControl';
@@ -117,7 +120,7 @@ function extractErrorMessage(error: unknown, fallback: string): string {
 
 export default function AccueilScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const [prenom, setPrenom] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const [universites, setUniversites] = useState<Universite[]>([]);
   const [communes, setCommunes] = useState<Commune[]>([]);
   const [universiteId, setUniversiteId] = useState<string | null>(null);
@@ -126,6 +129,7 @@ export default function AccueilScreen({ navigation }: Props) {
   const [demandes, setDemandes] = useState<Demande[]>([]);
   const [loadingTrajets, setLoadingTrajets] = useState(false);
   const [loadingDemandes, setLoadingDemandes] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
   const [presDeMoi, setPresDeMoi] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [rejoindreError, setRejoindreError] = useState<string | null>(null);
@@ -142,7 +146,9 @@ export default function AccueilScreen({ navigation }: Props) {
   useEffect(() => {
     getProfile()
       .then((profile) =>
-        setPrenom(getDisplayName(null, profile.prenom, profile.telephone)),
+        setDisplayName(
+          getDisplayName(profile.nom, profile.prenom, profile.telephone),
+        ),
       )
       .catch(() => undefined);
   }, []);
@@ -166,6 +172,9 @@ export default function AccueilScreen({ navigation }: Props) {
       setLoadingTrajets(true);
       try {
         setTrajets(await listTrajets(universiteId, communeId, lat, lng));
+        setFeedError(null);
+      } catch (e) {
+        setFeedError(extractErrorMessage(e, 'Impossible de charger les trajets.'));
       } finally {
         setLoadingTrajets(false);
       }
@@ -182,6 +191,9 @@ export default function AccueilScreen({ navigation }: Props) {
     setLoadingDemandes(true);
     try {
       setDemandes(await listerDemandes(universiteId, communeId));
+      setFeedError(null);
+    } catch (e) {
+      setFeedError(extractErrorMessage(e, 'Impossible de charger les demandes.'));
     } finally {
       setLoadingDemandes(false);
     }
@@ -190,6 +202,13 @@ export default function AccueilScreen({ navigation }: Props) {
   useEffect(() => {
     void loadDemandes();
   }, [loadDemandes]);
+
+  const refreshFeed = useCallback(() => {
+    void loadTrajets();
+    void loadDemandes();
+  }, [loadTrajets, loadDemandes]);
+
+  useRefreshOnForeground(refreshFeed);
 
   // Fusion visuelle (pas de fusion des modeles) : "trajets" (deja confirmes,
   // chauffeur+vehicule+prix garantis) et "demandes" (en attente d'un
@@ -306,7 +325,7 @@ export default function AccueilScreen({ navigation }: Props) {
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerTitleRow}>
-          <H4>Salut{prenom ? `, ${prenom}` : ''}</H4>
+          <H4>Salut{displayName ? `, ${displayName}` : ''}</H4>
           <BurgerButton onPress={() => navigation.navigate('Profil')} />
         </View>
         <View style={styles.dropdownRow}>
@@ -372,7 +391,7 @@ export default function AccueilScreen({ navigation }: Props) {
             <SegmentedControl
               options={[
                 { value: 'tous', label: 'Tous' },
-                { value: 'pres', label: 'Près de moi (POI)' },
+                { value: 'pres', label: 'Près de moi' },
               ]}
               value={presDeMoi ? 'pres' : 'tous'}
               onChange={(value) => void handlePresDeMoiChange(value)}
@@ -381,13 +400,25 @@ export default function AccueilScreen({ navigation }: Props) {
           {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
           {rejoindreError ? <Text style={styles.error}>{rejoindreError}</Text> : null}
 
-          {loadingTrajets || loadingDemandes ? (
+          {(loadingTrajets || loadingDemandes) && feed.length === 0 ? (
             <ActivityIndicator color={colors.accent} style={styles.loader} />
+          ) : feedError && feed.length === 0 ? (
+            <ErrorState message={feedError} onRetry={refreshFeed} />
           ) : (
             <FlatList
               data={feed}
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.list}
+              refreshControl={
+                <RefreshControl
+                  refreshing={loadingTrajets || loadingDemandes}
+                  onRefresh={refreshFeed}
+                  tintColor={colors.accent}
+                />
+              }
+              ListHeaderComponent={
+                feedError ? <Text style={styles.error}>{feedError}</Text> : null
+              }
               ListEmptyComponent={
                 <MutedText style={styles.empty}>
                   Aucun trajet ni demande pour le moment.

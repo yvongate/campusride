@@ -38,10 +38,7 @@ export default function CompleterProfilScreen({ navigation }: Props) {
     setSubmitting(true);
     try {
       await updateNom(nom.trim());
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'MainTabs' }],
-      });
+      navigation.navigate('Localisation');
     } catch {
       setError("Impossible d'enregistrer ton nom pour le moment. Réessaie.");
     } finally {
@@ -91,9 +88,7 @@ export default function CompleterProfilScreen({ navigation }: Props) {
             variant="ghost"
             block
             disabled={submitting}
-            onPress={() =>
-              navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] })
-            }
+            onPress={() => navigation.navigate('Localisation')}
           />
         </View>
       </TouchableWithoutFeedback>

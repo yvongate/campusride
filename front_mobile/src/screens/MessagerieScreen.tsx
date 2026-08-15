@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, RefreshControl, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { AxiosError } from 'axios';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -34,6 +34,7 @@ export default function MessagerieScreen({ navigation, route }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const mountedRef = useRef(true);
 
   const load = useCallback(async () => {
@@ -85,6 +86,12 @@ export default function MessagerieScreen({ navigation, route }: Props) {
     ).values(),
   );
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    await load();
+    if (mountedRef.current) setRefreshing(false);
+  }
+
   async function handleEnvoyer() {
     const contenu = draft.trim();
     if (!contenu) return;
@@ -127,6 +134,13 @@ export default function MessagerieScreen({ navigation, route }: Props) {
         data={messages}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void handleRefresh()}
+            tintColor={colors.accent}
+          />
+        }
         ListEmptyComponent={
           <MutedText style={styles.empty}>Aucun message pour le moment.</MutedText>
         }

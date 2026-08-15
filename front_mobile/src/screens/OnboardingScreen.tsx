@@ -59,7 +59,7 @@ export default function OnboardingScreen({ navigation }: Props) {
 
   function handleSuivant() {
     if (isLast) {
-      navigation.navigate('Localisation');
+      navigation.navigate('Connexion');
     } else {
       goToSlide(index + 1);
     }
@@ -69,7 +69,7 @@ export default function OnboardingScreen({ navigation }: Props) {
     <View style={styles.container}>
       <TouchableOpacity
         style={[styles.skip, { paddingTop: insets.top + 16 }]}
-        onPress={() => navigation.navigate('Localisation')}
+        onPress={() => navigation.navigate('Connexion')}
       >
         <MutedText style={styles.skipText}>Passer</MutedText>
       </TouchableOpacity>

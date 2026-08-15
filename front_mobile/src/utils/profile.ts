@@ -1,7 +1,8 @@
 /**
- * Le flux OTP ne collecte ni nom ni prenom -- ces champs restent null jusqu'a
- * un futur ecran d'edition de profil. En repli, le numero de telephone reste
- * un identifiant reel et utile, contrairement a un placeholder generique.
+ * Le flux OTP ne collecte que le nom (CompleterProfilScreen, premiere
+ * connexion) -- prenom reste toujours null pour l'instant. En repli, le
+ * numero de telephone reste un identifiant reel et utile, contrairement a
+ * un placeholder generique.
  */
 export function getDisplayName(
   nom: string | null,

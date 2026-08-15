@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -24,9 +25,11 @@ import {
 } from '../api/client';
 import { formatPlacesRestantes } from '../utils/places';
 import { getDisplayName } from '../utils/profile';
+import { useRefreshOnForeground } from '../hooks/useRefreshOnForeground';
 import { BurgerButton } from '../components/BurgerButton';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
+import { ErrorState } from '../components/ErrorState';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { Tag } from '../components/Tag';
 import { H4, MutedText } from '../components/Typography';
@@ -68,58 +71,54 @@ function demandeStatutTag(statut: string) {
   return { variant: 'neutral' as const, label: 'Expirée' };
 }
 
+// Statuts "actifs" (onglet En cours) vs "clos" (onglet Historique) -- une
+// demande non resolue est aussi "en cours" au meme titre qu'un trajet
+// reserve, avoir un 3e onglet separe pour les demandes pretait a confusion
+// (retour utilisateur direct, meme raisonnement que la fusion faite sur
+// l'Accueil).
+const DEMANDE_STATUTS_EN_COURS = ['ouverte', 'quota_atteint', 'acceptee'];
+
 export default function MesTrajetsPassagerScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [trajets, setTrajets] = useState<MesReservationsTrajet[]>([]);
   const [demandes, setDemandes] = useState<MesDemandesDemande[]>([]);
-  const [tab, setTab] = useState<'encours' | 'historique' | 'demandes'>('encours');
+  const [tab, setTab] = useState<'encours' | 'historique'>('encours');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
-  const loadTrajets = useCallback(() => {
+  const loadAll = useCallback(() => {
     setLoading(true);
     setError(null);
-    listerMesReservations()
-      .then(setTrajets)
+    Promise.all([listerMesReservations(), listerMesDemandes()])
+      .then(([trajetsData, demandesData]) => {
+        setTrajets(trajetsData);
+        setDemandes(demandesData);
+      })
       .catch((e) =>
         setError(extractErrorMessage(e, 'Impossible de charger tes trajets.')),
       )
       .finally(() => setLoading(false));
   }, []);
 
-  const loadDemandes = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    listerMesDemandes()
-      .then(setDemandes)
-      .catch((e) =>
-        setError(extractErrorMessage(e, 'Impossible de charger tes demandes.')),
-      )
-      .finally(() => setLoading(false));
-  }, []);
-
-  const loadCurrent = useCallback(() => {
-    if (tab === 'demandes') loadDemandes();
-    else loadTrajets();
-  }, [tab, loadDemandes, loadTrajets]);
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
 
   useEffect(() => {
-    loadCurrent();
-  }, [loadCurrent]);
-
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', loadCurrent);
+    const unsubscribe = navigation.addListener('focus', loadAll);
     return unsubscribe;
-  }, [navigation, loadCurrent]);
+  }, [navigation, loadAll]);
+
+  useRefreshOnForeground(loadAll);
 
   async function handleAnnuler(trajetId: string) {
     setPendingId(trajetId);
     setActionError(null);
     try {
       await annulerReservation(trajetId);
-      loadTrajets();
+      loadAll();
     } catch (e) {
       setActionError(extractErrorMessage(e, "L'annulation a échoué."));
     } finally {
@@ -132,7 +131,7 @@ export default function MesTrajetsPassagerScreen({ navigation }: Props) {
     setActionError(null);
     try {
       await signalerNoShow(trajetId);
-      loadTrajets();
+      loadAll();
     } catch (e) {
       setActionError(extractErrorMessage(e, 'Le signalement a échoué.'));
     } finally {
@@ -140,11 +139,38 @@ export default function MesTrajetsPassagerScreen({ navigation }: Props) {
     }
   }
 
-  const filtered = trajets.filter((t) =>
-    tab === 'encours'
-      ? t.statut === 'ouvert' || t.statut === 'commence'
-      : t.statut === 'termine' || t.statut === 'annule',
-  );
+  type FeedItem =
+    | { kind: 'trajet'; id: string; heure: string; trajet: MesReservationsTrajet }
+    | { kind: 'demande'; id: string; heure: string; demande: MesDemandesDemande };
+
+  const feed = useMemo<FeedItem[]>(() => {
+    const trajetsFiltres = trajets.filter((t) =>
+      tab === 'encours'
+        ? t.statut === 'ouvert' || t.statut === 'commence'
+        : t.statut === 'termine' || t.statut === 'annule',
+    );
+    const demandesFiltrees = demandes.filter((d) =>
+      tab === 'encours'
+        ? DEMANDE_STATUTS_EN_COURS.includes(d.statut)
+        : !DEMANDE_STATUTS_EN_COURS.includes(d.statut),
+    );
+    const items: FeedItem[] = [
+      ...trajetsFiltres.map((t) => ({
+        kind: 'trajet' as const,
+        id: `t-${t.id}`,
+        heure: t.heure,
+        trajet: t,
+      })),
+      ...demandesFiltrees.map((d) => ({
+        kind: 'demande' as const,
+        id: `d-${d.id}`,
+        heure: d.heure,
+        demande: d,
+      })),
+    ];
+    items.sort((a, b) => new Date(a.heure).getTime() - new Date(b.heure).getTime());
+    return items;
+  }, [trajets, demandes, tab]);
 
   return (
     <View style={styles.container}>
@@ -157,64 +183,35 @@ export default function MesTrajetsPassagerScreen({ navigation }: Props) {
           block
           options={[
             { value: 'encours', label: 'En cours' },
-            { value: 'demandes', label: 'Mes demandes' },
             { value: 'historique', label: 'Historique' },
           ]}
           value={tab}
-          onChange={(value) => setTab(value as 'encours' | 'historique' | 'demandes')}
+          onChange={(value) => setTab(value as 'encours' | 'historique')}
         />
       </View>
 
-      {loading ? (
+      {loading && feed.length === 0 ? (
         <ActivityIndicator color={colors.accent} style={styles.loader} />
-      ) : tab === 'demandes' ? (
-        <FlatList
-          data={demandes}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          ListEmptyComponent={
-            <MutedText style={styles.empty}>
-              Tu n'as aucune demande en cours.
-            </MutedText>
-          }
-          renderItem={({ item }) => {
-            const tag = demandeStatutTag(item.statut);
-            return (
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate('PointDeRegroupement', { demandeId: item.id })
-                }
-              >
-                <Card style={styles.card}>
-                  <View style={styles.rowBetween}>
-                    <Text style={styles.cardTitle}>
-                      {item.commune.nom} → {item.universite.nom}
-                    </Text>
-                    <Tag variant={tag.variant} label={tag.label} />
-                  </View>
-                  <MutedText style={styles.cardBody}>
-                    {formatPlacesRestantes(item.placesRecherchees, item.placesConfirmees)} ·{' '}
-                    {new Date(item.heure).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </MutedText>
-                </Card>
-              </TouchableOpacity>
-            );
-          }}
-        />
+      ) : error && feed.length === 0 ? (
+        <ErrorState message={error} onRetry={loadAll} />
       ) : (
         <>
           {error ? <Text style={styles.error}>{error}</Text> : null}
           {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
           <FlatList
-            data={filtered}
+            data={feed}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
+            refreshControl={
+              <RefreshControl
+                refreshing={loading}
+                onRefresh={loadAll}
+                tintColor={colors.accent}
+              />
+            }
             ListEmptyComponent={
-              <MutedText style={styles.empty}>Aucun trajet ici pour le moment.</MutedText>
+              <MutedText style={styles.empty}>Rien ici pour le moment.</MutedText>
             }
             ListFooterComponent={
               tab === 'encours' ? (
@@ -224,89 +221,122 @@ export default function MesTrajetsPassagerScreen({ navigation }: Props) {
                 </MutedText>
               ) : null
             }
-            renderItem={({ item }) => {
-              const conducteurNom = getDisplayName(
-                item.conducteur.nom,
-                item.conducteur.prenom,
-                'Conducteur',
-              );
-              const passe = new Date(item.heure).getTime() <= Date.now();
-              const isPending = pendingId === item.id;
-              const tag = statutTag(item.statut);
+            renderItem={({ item }) =>
+              item.kind === 'demande' ? (
+                <TouchableOpacity
+                  onPress={() =>
+                    navigation.navigate('PointDeRegroupement', {
+                      demandeId: item.demande.id,
+                    })
+                  }
+                >
+                  <Card style={styles.card}>
+                    <View style={styles.rowBetween}>
+                      <Text style={styles.cardTitle}>
+                        {item.demande.commune.nom} → {item.demande.universite.nom}
+                      </Text>
+                      <Tag {...demandeStatutTag(item.demande.statut)} />
+                    </View>
+                    <MutedText style={styles.cardBody}>
+                      {formatPlacesRestantes(
+                        item.demande.placesRecherchees,
+                        item.demande.placesConfirmees,
+                      )}{' '}
+                      ·{' '}
+                      {new Date(item.demande.heure).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </MutedText>
+                  </Card>
+                </TouchableOpacity>
+              ) : (
+                (() => {
+                  const t = item.trajet;
+                  const conducteurNom = getDisplayName(
+                    t.conducteur.nom,
+                    t.conducteur.prenom,
+                    'Conducteur',
+                  );
+                  const passe = new Date(t.heure).getTime() <= Date.now();
+                  const isPending = pendingId === t.id;
+                  const tag = statutTag(t.statut);
 
-              return (
-                <Card style={styles.card}>
-                  <View style={styles.rowBetween}>
-                    <Text style={styles.cardTitle}>
-                      {item.pointDeRdv.nom} → {item.universite.nom}
-                    </Text>
-                    <Tag variant={tag.variant} label={tag.label} />
-                  </View>
-                  <MutedText style={styles.cardBody}>
-                    {conducteurNom} ·{' '}
-                    {new Date(item.heure).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </MutedText>
+                  return (
+                    <Card style={styles.card}>
+                      <View style={styles.rowBetween}>
+                        <Text style={styles.cardTitle}>
+                          {t.pointDeRdv.nom} → {t.universite.nom}
+                        </Text>
+                        <Tag variant={tag.variant} label={tag.label} />
+                      </View>
+                      <MutedText style={styles.cardBody}>
+                        {conducteurNom} ·{' '}
+                        {new Date(t.heure).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </MutedText>
 
-                  <View style={styles.actions}>
-                    {item.peutVoirRencontre ? (
-                      <Button
-                        title="Voir la rencontre"
-                        variant="secondary"
-                        block
-                        onPress={() =>
-                          navigation.navigate('Rencontre', { trajetId: item.id })
-                        }
-                      />
-                    ) : null}
+                      <View style={styles.actions}>
+                        {t.peutVoirRencontre ? (
+                          <Button
+                            title="Voir la rencontre"
+                            variant="secondary"
+                            block
+                            onPress={() =>
+                              navigation.navigate('Rencontre', { trajetId: t.id })
+                            }
+                          />
+                        ) : null}
 
-                    {item.statut === 'ouvert' || item.statut === 'commence' ? (
-                      <Button
-                        title="Messagerie"
-                        variant="ghost"
-                        onPress={() =>
-                          navigation.navigate('Messagerie', { trajetId: item.id })
-                        }
-                      />
-                    ) : null}
+                        {t.statut === 'ouvert' || t.statut === 'commence' ? (
+                          <Button
+                            title="Messagerie"
+                            variant="ghost"
+                            onPress={() =>
+                              navigation.navigate('Messagerie', { trajetId: t.id })
+                            }
+                          />
+                        ) : null}
 
-                    {item.statut === 'termine' ? (
-                      <Button
-                        title="Noter ce trajet"
-                        variant="secondary"
-                        block
-                        onPress={() =>
-                          navigation.navigate('Notation', {
-                            trajetId: item.id,
-                            cibles: [{ id: item.conducteur.id, label: conducteurNom }],
-                          })
-                        }
-                      />
-                    ) : null}
+                        {t.statut === 'termine' ? (
+                          <Button
+                            title="Noter ce trajet"
+                            variant="secondary"
+                            block
+                            onPress={() =>
+                              navigation.navigate('Notation', {
+                                trajetId: t.id,
+                                cibles: [{ id: t.conducteur.id, label: conducteurNom }],
+                              })
+                            }
+                          />
+                        ) : null}
 
-                    {item.statut === 'ouvert' && !passe ? (
-                      <Button
-                        title="Annuler"
-                        variant="ghost"
-                        loading={isPending}
-                        onPress={() => void handleAnnuler(item.id)}
-                      />
-                    ) : null}
+                        {t.statut === 'ouvert' && !passe ? (
+                          <Button
+                            title="Annuler"
+                            variant="ghost"
+                            loading={isPending}
+                            onPress={() => void handleAnnuler(t.id)}
+                          />
+                        ) : null}
 
-                    {item.statut === 'ouvert' && passe ? (
-                      <Button
-                        title="Signaler absence conducteur"
-                        variant="ghost"
-                        loading={isPending}
-                        onPress={() => void handleSignalerAbsence(item.id)}
-                      />
-                    ) : null}
-                  </View>
-                </Card>
-              );
-            }}
+                        {t.statut === 'ouvert' && passe ? (
+                          <Button
+                            title="Signaler absence conducteur"
+                            variant="ghost"
+                            loading={isPending}
+                            onPress={() => void handleSignalerAbsence(t.id)}
+                          />
+                        ) : null}
+                      </View>
+                    </Card>
+                  );
+                })()
+              )
+            }
           />
         </>
       )}

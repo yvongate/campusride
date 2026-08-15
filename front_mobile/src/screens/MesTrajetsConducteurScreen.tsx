@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { AxiosError } from 'axios';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -12,8 +12,10 @@ import {
   terminerTrajet,
 } from '../api/client';
 import { getDisplayName } from '../utils/profile';
+import { useRefreshOnForeground } from '../hooks/useRefreshOnForeground';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
+import { ErrorState } from '../components/ErrorState';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { Tag } from '../components/Tag';
@@ -53,6 +55,8 @@ export default function MesTrajetsConducteurScreen({ navigation }: Props) {
     const unsubscribe = navigation.addListener('focus', load);
     return unsubscribe;
   }, [navigation, load]);
+
+  useRefreshOnForeground(load);
 
   async function runAction(key: string, action: () => Promise<void>) {
     setPendingKey(key);
@@ -99,8 +103,10 @@ export default function MesTrajetsConducteurScreen({ navigation }: Props) {
         />
       </View>
 
-      {loading ? (
+      {loading && filtered.length === 0 ? (
         <ActivityIndicator color={colors.accent} style={styles.loader} />
+      ) : error && filtered.length === 0 ? (
+        <ErrorState message={error} onRetry={load} />
       ) : (
         <>
           {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -110,6 +116,13 @@ export default function MesTrajetsConducteurScreen({ navigation }: Props) {
             data={filtered}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
+            refreshControl={
+              <RefreshControl
+                refreshing={loading}
+                onRefresh={load}
+                tintColor={colors.accent}
+              />
+            }
             ListEmptyComponent={
               <MutedText style={styles.empty}>Aucun trajet ici pour le moment.</MutedText>
             }

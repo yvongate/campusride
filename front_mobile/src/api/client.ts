@@ -1,5 +1,6 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import { resetToConnexion } from '../navigation/navigationRef';
 
 const baseURL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -15,6 +16,25 @@ apiClient.interceptors.request.use(async (config) => {
   }
   return config;
 });
+
+// Un 401 en cours de session (token expire ou revoque -- pas au login, /auth/*
+// est exclu car un code OTP errone renvoie aussi 401) signifie que la session
+// n'est plus valide : on efface le token et on renvoie vers Connexion au lieu
+// de laisser chaque ecran echouer silencieusement avec une erreur brute.
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error: unknown) => {
+    if (
+      error instanceof AxiosError &&
+      error.response?.status === 401 &&
+      !error.config?.url?.startsWith('/auth/')
+    ) {
+      await SecureStore.deleteItemAsync('accessToken');
+      resetToConnexion();
+    }
+    return Promise.reject(error);
+  },
+);
 
 // Aucun fournisseur SMS branche (Twilio retire du projet) -- le backend
 // renvoie le code directement dans la reponse, affiche/pre-rempli par l'app

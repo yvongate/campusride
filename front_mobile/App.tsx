@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as SecureStore from 'expo-secure-store';
 import {
   useFonts,
   Archivo_400Regular,
@@ -10,6 +11,9 @@ import {
   Archivo_800ExtraBold,
 } from '@expo-google-fonts/archivo';
 import * as SplashScreen from 'expo-splash-screen';
+import { getAccessToken, getProfile } from './src/api/client';
+import { navigationRef } from './src/navigation/navigationRef';
+import { OfflineBanner } from './src/components/OfflineBanner';
 import type { RootStackParamList } from './src/navigation/types';
 import MainTabs from './src/navigation/MainTabs';
 import OnboardingScreen from './src/screens/OnboardingScreen';
@@ -33,29 +37,51 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 SplashScreen.preventAutoHideAsync();
 
+type InitialRoute = 'Onboarding' | 'CompleterProfil' | 'MainTabs';
+
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
     Archivo_400Regular,
     Archivo_600SemiBold,
     Archivo_800ExtraBold,
   });
+  const [initialRoute, setInitialRoute] = useState<InitialRoute | null>(null);
 
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    (async () => {
+      const token = await getAccessToken();
+      if (!token) {
+        setInitialRoute('Onboarding');
+        return;
+      }
+      try {
+        const profile = await getProfile();
+        setInitialRoute(profile.nom ? 'MainTabs' : 'CompleterProfil');
+      } catch {
+        // Token expire, revoque ou backend injoignable : on repart de zero.
+        await SecureStore.deleteItemAsync('accessToken');
+        setInitialRoute('Onboarding');
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if ((fontsLoaded || fontError) && initialRoute) {
       void SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError]);
+  }, [fontsLoaded, fontError, initialRoute]);
 
-  if (!fontsLoaded && !fontError) {
+  if ((!fontsLoaded && !fontError) || !initialRoute) {
     return null;
   }
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <StatusBar style="auto" />
+        <OfflineBanner />
         <Stack.Navigator
-          initialRouteName="Onboarding"
+          initialRouteName={initialRoute}
           screenOptions={{ headerShown: false }}
         >
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
