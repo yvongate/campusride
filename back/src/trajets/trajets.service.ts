@@ -9,6 +9,8 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { join } from 'path';
 import { distanceKm } from '../common/utils/haversine';
+import { computeNote } from '../common/utils/note';
+import { resolveUniversitesProches } from '../common/utils/universites-proches';
 import { MessagerieService } from '../messagerie/messagerie.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CONDUCTEUR_UPLOADS_DIR } from '../users/conducteur-files.storage';
@@ -17,7 +19,7 @@ import { ListTrajetsQueryDto } from './dto/list-trajets-query.dto';
 import { computePrixParPersonne } from './prix';
 
 const TRAJET_DETAIL_INCLUDE = {
-  conducteur: { select: { id: true, nom: true, prenom: true, note: true } },
+  conducteur: { select: { id: true, nom: true, prenom: true, note: true, nombreNotations: true } },
   pointDeRdv: { include: { quartier: { include: { commune: true } } } },
   universite: true,
 } as const;
@@ -35,7 +37,6 @@ const LATE_CANCELLATION_WINDOW_MS = 2 * 60 * 60 * 1000;
 // Aucune formule n'est donnee par le cahier des charges pour la baisse de
 // note -- mecanisme simplifie et provisoire, voir Story 3.5 Dev Notes.
 const LATE_CANCELLATION_PENALTY = 0.5;
-const MIN_NOTE = 1;
 
 // "La note du conducteur baisse fortement, de la meme maniere qu'une
 // annulation tardive" (§8.2) -- meme mecanisme que LATE_CANCELLATION_PENALTY
@@ -130,16 +131,20 @@ export class TrajetsService {
   }
 
   async listerTrajets(query: ListTrajetsQueryDto) {
+    const universiteIds = await resolveUniversitesProches(
+      this.prisma,
+      query.universiteId,
+    );
     const trajets = await this.prisma.trajet.findMany({
       where: {
-        universiteId: query.universiteId,
+        universiteId: { in: universiteIds },
         statut: 'ouvert',
         pointDeRdv: { quartier: { communeId: query.communeId } },
       },
       include: {
         pointDeRdv: { include: { quartier: { include: { commune: true } } } },
         conducteur: {
-          select: { id: true, nom: true, prenom: true, note: true },
+          select: { id: true, nom: true, prenom: true, note: true, nombreNotations: true },
         },
         universite: true,
       },
@@ -359,16 +364,18 @@ export class TrajetsService {
     // valeur, mais l'ecriture du trajet et celle de la note doivent rester
     // atomiques -- toutes deux dans le meme $transaction (voir Story 3.5,
     // ne pas laisser deux ecritures sequentielles non liees).
-    let nouvelleNote: number | undefined;
+    let nouvellePenalite: { penaliteCumulee: number; note: number | null } | undefined;
     if (estTardive) {
       const conducteur = await this.prisma.utilisateur.findUnique({
         where: { id: conducteurId },
       });
-      if (conducteur?.note !== null && conducteur?.note !== undefined) {
-        nouvelleNote = Math.max(
-          MIN_NOTE,
-          conducteur.note - LATE_CANCELLATION_PENALTY,
-        );
+      if (conducteur) {
+        const penaliteCumulee =
+          conducteur.penaliteCumulee + LATE_CANCELLATION_PENALTY;
+        nouvellePenalite = {
+          penaliteCumulee,
+          note: computeNote(conducteur.noteBrute, penaliteCumulee),
+        };
       }
     }
 
@@ -378,14 +385,14 @@ export class TrajetsService {
     });
 
     const trajetAnnule =
-      nouvelleNote === undefined
+      nouvellePenalite === undefined
         ? (await this.prisma.$transaction([trajetUpdate]))[0]
         : (
             await this.prisma.$transaction([
               trajetUpdate,
               this.prisma.utilisateur.update({
                 where: { id: conducteurId },
-                data: { note: nouvelleNote },
+                data: nouvellePenalite,
               }),
             ])
           )[0];
@@ -497,10 +504,14 @@ export class TrajetsService {
       data: { statut: 'annule' },
     });
 
+    const penaliteCumulee = conducteur
+      ? conducteur.penaliteCumulee + NO_SHOW_PENALTY
+      : undefined;
+
     // Meme structure a deux branches statiques que annulerTrajet/annulerReservation
     // (Stories 3.5/3.6) -- ne pas reconstruire un tableau unknown[] caste.
     const trajetAnnule =
-      conducteur?.note === null || conducteur?.note === undefined
+      conducteur === null || penaliteCumulee === undefined
         ? (await this.prisma.$transaction([trajetUpdate]))[0]
         : (
             await this.prisma.$transaction([
@@ -508,7 +519,8 @@ export class TrajetsService {
               this.prisma.utilisateur.update({
                 where: { id: trajet.conducteurId },
                 data: {
-                  note: Math.max(MIN_NOTE, conducteur.note - NO_SHOW_PENALTY),
+                  penaliteCumulee,
+                  note: computeNote(conducteur.noteBrute, penaliteCumulee),
                 },
               }),
             ])
@@ -658,6 +670,7 @@ export class TrajetsService {
         nom: conducteur.nom,
         prenom: conducteur.prenom,
         note: conducteur.note,
+        nombreNotations: conducteur.nombreNotations,
         verifie: true,
         matriculeVehicule: documents?.matriculeVehicule ?? null,
         photoVehicule: documents?.photoVehicule ?? null,
@@ -722,10 +735,14 @@ export class TrajetsService {
       data: { statut: 'absent' },
     });
 
+    const passagerPenaliteCumulee = passager
+      ? passager.penaliteCumulee + PASSAGER_NO_SHOW_PENALTY
+      : undefined;
+
     // Meme structure a deux branches statiques que annulerTrajet/signalerNoShow
     // (Stories 3.5/3.7) -- ne pas reconstruire un tableau unknown[] caste.
     const reservationMiseAJour =
-      passager?.note === null || passager?.note === undefined
+      passager === null || passagerPenaliteCumulee === undefined
         ? (await this.prisma.$transaction([reservationUpdate]))[0]
         : (
             await this.prisma.$transaction([
@@ -733,9 +750,10 @@ export class TrajetsService {
               this.prisma.utilisateur.update({
                 where: { id: passagerId },
                 data: {
-                  note: Math.max(
-                    MIN_NOTE,
-                    passager.note - PASSAGER_NO_SHOW_PENALTY,
+                  penaliteCumulee: passagerPenaliteCumulee,
+                  note: computeNote(
+                    passager.noteBrute,
+                    passagerPenaliteCumulee,
                   ),
                 },
               }),

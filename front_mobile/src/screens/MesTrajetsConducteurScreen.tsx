@@ -32,9 +32,15 @@ function extractErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export default function MesTrajetsConducteurScreen({ navigation }: Props) {
+export default function MesTrajetsConducteurScreen({ navigation, route }: Props) {
   const [trajets, setTrajets] = useState<MesTrajetsConducteurTrajet[]>([]);
-  const [tab, setTab] = useState<'avenir' | 'termines'>('avenir');
+  // Ouvrable directement sur les trajets termines depuis le menu Profil.
+  const tabDemande = route.params?.tab;
+  const [tab, setTab] = useState<'avenir' | 'termines'>(tabDemande ?? 'avenir');
+
+  useEffect(() => {
+    if (tabDemande) setTab(tabDemande);
+  }, [tabDemande]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);

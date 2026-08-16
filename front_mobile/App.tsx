@@ -22,6 +22,11 @@ import ConnexionScreen from './src/screens/ConnexionScreen';
 import VerificationOtpScreen from './src/screens/VerificationOtpScreen';
 import InscriptionConducteurScreen from './src/screens/InscriptionConducteurScreen';
 import CompleterProfilScreen from './src/screens/CompleterProfilScreen';
+import ChoisirUniversiteScreen from './src/screens/ChoisirUniversiteScreen';
+import MesInformationsScreen from './src/screens/MesInformationsScreen';
+import ParametresScreen from './src/screens/ParametresScreen';
+import AideScreen from './src/screens/AideScreen';
+import AvisScreen from './src/screens/AvisScreen';
 import TrajetDetailScreen from './src/screens/TrajetDetailScreen';
 import RencontreScreen from './src/screens/RencontreScreen';
 import PublierTrajetScreen from './src/screens/PublierTrajetScreen';
@@ -37,7 +42,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 SplashScreen.preventAutoHideAsync();
 
-type InitialRoute = 'Onboarding' | 'CompleterProfil' | 'MainTabs';
+type InitialRoute = 'Onboarding' | 'MainTabs';
 
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
@@ -49,17 +54,24 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const token = await getAccessToken();
-      if (!token) {
-        setInitialRoute('Onboarding');
-        return;
-      }
       try {
-        const profile = await getProfile();
-        setInitialRoute(profile.nom ? 'MainTabs' : 'CompleterProfil');
+        const token = await getAccessToken();
+        if (!token) {
+          setInitialRoute('Onboarding');
+          return;
+        }
+        // On valide juste que le token est encore accepte. Le nom ne doit
+        // JAMAIS conditionner l'entree dans l'app ici : "CompleterProfil" est
+        // un passage unique du premier login (VerificationOtpScreen), et son
+        // bouton "Passer" ne persiste rien -- le mettre sur le chemin du
+        // demarrage transformait un nom absent en barriere permanente
+        // (l'accueil devenait inatteignable a chaque lancement).
+        await getProfile();
+        setInitialRoute('MainTabs');
       } catch {
-        // Token expire, revoque ou backend injoignable : on repart de zero.
-        await SecureStore.deleteItemAsync('accessToken');
+        // Token expire/revoque, backend injoignable, ou erreur SecureStore :
+        // dans tous les cas on ne doit jamais rester bloque sur le splash.
+        await SecureStore.deleteItemAsync('accessToken').catch(() => undefined);
         setInitialRoute('Onboarding');
       }
     })();
@@ -100,6 +112,17 @@ export default function App() {
             name="CompleterProfil"
             component={CompleterProfilScreen}
           />
+          <Stack.Screen
+            name="ChoisirUniversite"
+            component={ChoisirUniversiteScreen}
+          />
+          <Stack.Screen
+            name="MesInformations"
+            component={MesInformationsScreen}
+          />
+          <Stack.Screen name="Parametres" component={ParametresScreen} />
+          <Stack.Screen name="Aide" component={AideScreen} />
+          <Stack.Screen name="Avis" component={AvisScreen} />
           <Stack.Screen name="TrajetDetail" component={TrajetDetailScreen} />
           <Stack.Screen name="Rencontre" component={RencontreScreen} />
           <Stack.Screen name="PublierTrajet" component={PublierTrajetScreen} />

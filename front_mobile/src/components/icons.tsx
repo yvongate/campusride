@@ -112,3 +112,22 @@ export function StarIcon({ size = 11, color = '#ae1800' }: IconProps) {
     </Svg>
   );
 }
+
+// Repere de position, style Google/Yango -- barre "position -> universite"
+// de l'Accueil.
+export function PinIcon({ size = 15, color = '#201e1d' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0116 0z" />
+      <Circle cx="12" cy="10" r="3" />
+    </Svg>
+  );
+}
+
+export function PencilIcon({ size = 13, color = '#201e1d' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+    </Svg>
+  );
+}

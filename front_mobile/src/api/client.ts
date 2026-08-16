@@ -68,6 +68,9 @@ export interface Profile {
   prenom: string | null;
   telephone: string;
   note: number | null;
+  nombreNotations: number;
+  universiteId: string | null;
+  universite: { id: string; nom: string } | null;
   conducteurStatut: string | null;
 }
 
@@ -78,6 +81,10 @@ export async function getProfile(): Promise<Profile> {
 
 export async function updateNom(nom: string): Promise<void> {
   await apiClient.patch('/users/me', { nom });
+}
+
+export async function updateUniversite(universiteId: string): Promise<void> {
+  await apiClient.patch('/users/me', { universiteId });
 }
 
 export async function submitConducteurRequest(
@@ -172,6 +179,7 @@ export interface Trajet {
     nom: string | null;
     prenom: string | null;
     note: number | null;
+    nombreNotations: number;
     verifie: boolean;
   };
   distanceKm?: number;
@@ -206,6 +214,7 @@ export interface TrajetDetail {
     nom: string | null;
     prenom: string | null;
     note: number | null;
+    nombreNotations: number;
     verifie: boolean;
   };
   placesDisponibles: number;
@@ -318,6 +327,41 @@ export async function noterParticipant(
   });
 }
 
+export interface Avis {
+  id: string;
+  etoiles: number;
+  commentaire: string | null;
+  createdAt: string;
+  noteur: { nom: string | null; prenom: string | null };
+}
+
+export interface AvisUtilisateur {
+  note: number | null;
+  nombreNotations: number;
+  avis: Avis[];
+}
+
+export async function listerAvisUtilisateur(
+  userId: string,
+): Promise<AvisUtilisateur> {
+  const res = await apiClient.get<AvisUtilisateur>(
+    `/users/${userId}/notations`,
+  );
+  return res.data;
+}
+
+export interface NotationEnAttente {
+  trajetId: string;
+  cibles: { id: string; label: string }[];
+}
+
+export async function listerNotationsEnAttente(): Promise<
+  NotationEnAttente[]
+> {
+  const res = await apiClient.get<NotationEnAttente[]>('/notations/en-attente');
+  return res.data;
+}
+
 export interface CreateDemandeInput {
   universiteId: string;
   communeId: string;
@@ -351,6 +395,7 @@ export interface Demande {
     nom: string | null;
     prenom: string | null;
     note: number | null;
+    nombreNotations: number;
   };
 }
 
@@ -406,11 +451,13 @@ export interface DemandeDetail {
     nom: string | null;
     prenom: string | null;
     note: number | null;
+    nombreNotations: number;
   };
   conducteur: {
     nom: string | null;
     prenom: string | null;
     note: number | null;
+    nombreNotations: number;
     matriculeVehicule: string | null;
   } | null;
   estParticipant: boolean;
@@ -472,6 +519,7 @@ export interface RencontreConducteur {
   nom: string | null;
   prenom: string | null;
   note: number | null;
+  nombreNotations: number;
   verifie: boolean;
   matriculeVehicule: string | null;
   photoVehicule: string | null;

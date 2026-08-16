@@ -1,9 +1,13 @@
 import { Module } from '@nestjs/common';
-import { NotationController } from './notation.controller';
+import {
+  NotationController,
+  NotationsGlobalController,
+  UserAvisController,
+} from './notation.controller';
 import { NotationService } from './notation.service';
 
 @Module({
-  controllers: [NotationController],
+  controllers: [NotationController, NotationsGlobalController, UserAvisController],
   providers: [NotationService],
 })
 export class NotationModule {}

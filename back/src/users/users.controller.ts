@@ -50,7 +50,9 @@ export class UsersController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   async me(@Req() req: AuthenticatedRequest) {
-    const user = await this.usersService.findById(req.user.userId);
+    const user = await this.usersService.findByIdAvecUniversite(
+      req.user.userId,
+    );
     const conducteurStatut = await this.usersService.getConducteurStatus(
       req.user.userId,
     );
@@ -60,6 +62,9 @@ export class UsersController {
       prenom: user.prenom,
       telephone: user.telephone,
       note: user.note,
+      nombreNotations: user.nombreNotations,
+      universiteId: user.universiteId,
+      universite: user.universite ? { id: user.universite.id, nom: user.universite.nom } : null,
       conducteurStatut,
     };
   }
@@ -70,8 +75,8 @@ export class UsersController {
     @Req() req: AuthenticatedRequest,
     @Body() dto: UpdateProfilDto,
   ) {
-    const user = await this.usersService.updateNom(req.user.userId, dto.nom);
-    return { id: user.id, nom: user.nom };
+    const user = await this.usersService.updateProfil(req.user.userId, dto);
+    return { id: user.id, nom: user.nom, universiteId: user.universiteId };
   }
 
   @Post('me/conducteur')

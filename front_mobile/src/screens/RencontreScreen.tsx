@@ -114,7 +114,9 @@ export default function RencontreScreen({ navigation, route }: Props) {
           <View style={styles.conducteurInfo}>
             <Text style={styles.nom}>{nom}</Text>
             {conducteur.note !== null ? (
-              <MutedText style={styles.meta}>★ {conducteur.note.toFixed(1)}</MutedText>
+              <MutedText style={styles.meta}>
+                ★ {conducteur.note.toFixed(1)} ({conducteur.nombreNotations} avis)
+              </MutedText>
             ) : null}
           </View>
           {conducteur.verifie ? <Tag variant="outline" label="Vérifié" /> : null}

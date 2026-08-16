@@ -21,9 +21,22 @@ model Utilisateur {
   email                 String?                 @unique
   passwordHash          String?
   role                  String                  @default("etudiant")
+  // "note" est la valeur publique (affichee partout), toujours derivee de
+  // noteBrute - penaliteCumulee (voir back/src/common/utils/note.ts) -- ne
+  // jamais l'ecrire directement ailleurs que via computeNote, sinon on
+  // reproduit le bug ou une notation effacait les penalites (et vice versa).
   note                  Float?
+  noteBrute             Float?
+  nombreNotations       Int                     @default(0)
+  penaliteCumulee       Float                   @default(0)
   actif                 Boolean                 @default(true)
   createdAt             DateTime                @default(now())
+  // Universite de l'etudiant, renseignee une fois (premiere connexion ou
+  // "Mes informations"), reutilisee comme destination par defaut sur
+  // l'Accueil et CreerDemande -- optionnel et modifiable a tout moment,
+  // jamais un blocage a l'entree dans l'app (meme principe que "nom").
+  universiteId          String?
+  universite            Universite?             @relation(fields: [universiteId], references: [id])
   documentsConducteur   DocumentsConducteur[]
   trajets               Trajet[]
   reservations          Reservation[]
@@ -58,6 +71,7 @@ model Universite {
   createdAt DateTime @default(now())
   trajets   Trajet[]
   demandes  Demande[]
+  etudiants Utilisateur[]
 }
 
 model Commune {

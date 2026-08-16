@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { AxiosError } from 'axios';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -104,11 +104,20 @@ export default function TrajetDetailScreen({ navigation, route }: Props) {
           <Avatar initial={conducteurNom.charAt(0)} size={42} />
           <View style={styles.conducteurInfo}>
             <Text style={styles.conducteurNom}>{conducteurNom}</Text>
-            {trajet.conducteur.note !== null ? (
+            <TouchableOpacity
+              onPress={() =>
+                navigation.navigate('Avis', {
+                  userId: trajet.conducteur.id,
+                  nom: conducteurNom,
+                })
+              }
+            >
               <MutedText style={styles.meta}>
-                ★ {trajet.conducteur.note.toFixed(1)}
+                {trajet.conducteur.note !== null
+                  ? `★ ${trajet.conducteur.note.toFixed(1)} (${trajet.conducteur.nombreNotations} avis)`
+                  : 'Aucun avis pour le moment'}
               </MutedText>
-            ) : null}
+            </TouchableOpacity>
           </View>
           {trajet.conducteur.verifie ? <Tag variant="outline" label="Vérifié" /> : null}
         </View>

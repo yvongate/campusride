@@ -49,3 +49,29 @@ export class NotationController {
     );
   }
 }
+
+@ApiTags('Notation')
+@ApiBearerAuth('access-token')
+@Controller('notations')
+export class NotationsGlobalController {
+  constructor(private readonly notationService: NotationService) {}
+
+  @Get('en-attente')
+  @UseGuards(JwtAuthGuard)
+  async listerEnAttente(@Req() req: AuthenticatedRequest) {
+    return this.notationService.listerNotationsEnAttente(req.user.userId);
+  }
+}
+
+@ApiTags('Notation')
+@ApiBearerAuth('access-token')
+@Controller('users/:userId/notations')
+export class UserAvisController {
+  constructor(private readonly notationService: NotationService) {}
+
+  @Get()
+  @UseGuards(JwtAuthGuard)
+  async listerAvis(@Param('userId') userId: string) {
+    return this.notationService.listerAvisUtilisateur(userId);
+  }
+}

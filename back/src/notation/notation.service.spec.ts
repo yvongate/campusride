@@ -16,6 +16,7 @@ describe('NotationService', () => {
   let notationCreateMock: jest.Mock;
   let notationFindManyMock: jest.Mock;
   let utilisateurUpdateMock: jest.Mock;
+  let utilisateurFindUniqueOrThrowMock: jest.Mock;
 
   beforeEach(async () => {
     trajetFindUniqueMock = jest.fn();
@@ -24,6 +25,9 @@ describe('NotationService', () => {
     notationCreateMock = jest.fn();
     notationFindManyMock = jest.fn().mockResolvedValue([]);
     utilisateurUpdateMock = jest.fn();
+    utilisateurFindUniqueOrThrowMock = jest
+      .fn()
+      .mockResolvedValue({ penaliteCumulee: 0 });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -38,7 +42,10 @@ describe('NotationService', () => {
               create: notationCreateMock,
               findMany: notationFindManyMock,
             },
-            utilisateur: { update: utilisateurUpdateMock },
+            utilisateur: {
+              update: utilisateurUpdateMock,
+              findUniqueOrThrow: utilisateurFindUniqueOrThrowMock,
+            },
           },
         },
       ],
@@ -175,9 +182,59 @@ describe('NotationService', () => {
       });
       expect(utilisateurUpdateMock).toHaveBeenCalledWith({
         where: { id: 'passager-1' },
-        data: { note: 4 },
+        data: { noteBrute: 4, nombreNotations: 2, note: 4 },
       });
       expect(result).toEqual({ id: 'notation-1' });
+    });
+
+    it('subtracts the accumulated penalty from the fresh average instead of overwriting it', async () => {
+      trajetFindUniqueMock.mockResolvedValueOnce({
+        id: 'trajet-1',
+        conducteurId: 'conducteur-1',
+        statut: 'termine',
+      });
+      reservationFindFirstMock.mockResolvedValueOnce({ id: 'reservation-1' });
+      notationFindFirstMock.mockResolvedValueOnce(null);
+      notationCreateMock.mockResolvedValueOnce({ id: 'notation-1' });
+      notationFindManyMock.mockResolvedValueOnce([
+        { etoiles: 5 },
+        { etoiles: 3 },
+      ]);
+      utilisateurFindUniqueOrThrowMock.mockResolvedValueOnce({
+        penaliteCumulee: 1.5,
+      });
+
+      await service.noterParticipant('conducteur-1', 'trajet-1', {
+        destinataireId: 'passager-1',
+        etoiles: 5,
+      });
+
+      expect(utilisateurUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'passager-1' },
+        data: { noteBrute: 4, nombreNotations: 2, note: 2.5 },
+      });
+    });
+
+    it('sets noteBrute and nombreNotations back to null/0 if no notation remains (defensive, not currently reachable)', async () => {
+      trajetFindUniqueMock.mockResolvedValueOnce({
+        id: 'trajet-1',
+        conducteurId: 'conducteur-1',
+        statut: 'termine',
+      });
+      reservationFindFirstMock.mockResolvedValueOnce({ id: 'reservation-1' });
+      notationFindFirstMock.mockResolvedValueOnce(null);
+      notationCreateMock.mockResolvedValueOnce({ id: 'notation-1' });
+      notationFindManyMock.mockResolvedValueOnce([]);
+
+      await service.noterParticipant('conducteur-1', 'trajet-1', {
+        destinataireId: 'passager-1',
+        etoiles: 5,
+      });
+
+      expect(utilisateurUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'passager-1' },
+        data: { noteBrute: null, nombreNotations: 0, note: null },
+      });
     });
   });
 

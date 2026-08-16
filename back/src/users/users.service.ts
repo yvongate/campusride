@@ -22,10 +22,29 @@ export class UsersService {
     return this.prisma.utilisateur.findUniqueOrThrow({ where: { id } });
   }
 
-  async updateNom(userId: string, nom: string) {
+  async findByIdAvecUniversite(id: string) {
+    return this.prisma.utilisateur.findUniqueOrThrow({
+      where: { id },
+      include: { universite: true },
+    });
+  }
+
+  async updateProfil(
+    userId: string,
+    data: { nom?: string; universiteId?: string },
+  ) {
+    if (data.universiteId) {
+      const universite = await this.prisma.universite.findUnique({
+        where: { id: data.universiteId },
+      });
+      if (!universite) {
+        throw new BadRequestException("L'universite indiquee est introuvable");
+      }
+    }
+
     return this.prisma.utilisateur.update({
       where: { id: userId },
-      data: { nom },
+      data,
     });
   }
 

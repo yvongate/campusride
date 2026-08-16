@@ -14,6 +14,7 @@ import { CONDUCTEUR_UPLOADS_DIR } from '../users/conducteur-files.storage';
 describe('TrajetsService', () => {
   let service: TrajetsService;
   let universiteFindUniqueMock: jest.Mock;
+  let universiteFindManyMock: jest.Mock;
   let poiFindUniqueMock: jest.Mock;
   let utilisateurFindUniqueMock: jest.Mock;
   let trajetFindFirstMock: jest.Mock;
@@ -47,6 +48,7 @@ describe('TrajetsService', () => {
 
   beforeEach(async () => {
     universiteFindUniqueMock = jest.fn();
+    universiteFindManyMock = jest.fn();
     poiFindUniqueMock = jest.fn();
     utilisateurFindUniqueMock = jest.fn();
     trajetFindFirstMock = jest.fn();
@@ -76,7 +78,10 @@ describe('TrajetsService', () => {
         {
           provide: PrismaService,
           useValue: {
-            universite: { findUnique: universiteFindUniqueMock },
+            universite: {
+              findUnique: universiteFindUniqueMock,
+              findMany: universiteFindManyMock,
+            },
             pointInteret: { findUnique: poiFindUniqueMock },
             utilisateur: {
               findUnique: utilisateurFindUniqueMock,
@@ -202,6 +207,11 @@ describe('TrajetsService', () => {
     const query = { universiteId: 'univ-1', communeId: 'commune-1' };
 
     it('builds the correct where/orderBy and marks the conducteur as verifie', async () => {
+      universiteFindUniqueMock.mockResolvedValueOnce({
+        id: 'univ-1',
+        commune: 'Cocody',
+      });
+      universiteFindManyMock.mockResolvedValueOnce([{ id: 'univ-1' }]);
       trajetFindManyMock.mockResolvedValueOnce([
         {
           id: 'trajet-1',
@@ -221,7 +231,7 @@ describe('TrajetsService', () => {
       expect(trajetFindManyMock).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
-            universiteId: 'univ-1',
+            universiteId: { in: ['univ-1'] },
             statut: 'ouvert',
             pointDeRdv: { quartier: { communeId: 'commune-1' } },
           },
@@ -229,6 +239,44 @@ describe('TrajetsService', () => {
         }),
       );
       expect(result[0].conducteur.verifie).toBe(true);
+    });
+
+    it('also includes trajets towards other universites in the same commune (proximite)', async () => {
+      universiteFindUniqueMock.mockResolvedValueOnce({
+        id: 'univ-1',
+        commune: 'Cocody',
+      });
+      universiteFindManyMock.mockResolvedValueOnce([
+        { id: 'univ-1' },
+        { id: 'univ-2' },
+        { id: 'univ-3' },
+      ]);
+      trajetFindManyMock.mockResolvedValueOnce([]);
+
+      await service.listerTrajets(query);
+
+      expect(trajetFindManyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            universiteId: { in: ['univ-1', 'univ-2', 'univ-3'] },
+          }),
+        }),
+      );
+    });
+
+    it('falls back to the exact universiteId when the universite is not found', async () => {
+      universiteFindUniqueMock.mockResolvedValueOnce(null);
+      trajetFindManyMock.mockResolvedValueOnce([]);
+
+      await service.listerTrajets(query);
+
+      expect(trajetFindManyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            universiteId: { in: ['univ-1'] },
+          }),
+        }),
+      );
     });
 
     it('keeps the Prisma order (by heure) when no lat/lng is given', async () => {
@@ -667,7 +715,8 @@ describe('TrajetsService', () => {
       });
       utilisateurFindUniqueMock.mockResolvedValueOnce({
         id: 'conducteur-1',
-        note: 4.0,
+        noteBrute: 4.0,
+        penaliteCumulee: 0,
       });
       reservationFindManyMock.mockResolvedValueOnce([]);
 
@@ -675,7 +724,7 @@ describe('TrajetsService', () => {
 
       expect(utilisateurUpdateMock).toHaveBeenCalledWith({
         where: { id: 'conducteur-1' },
-        data: { note: 3.5 },
+        data: { penaliteCumulee: 0.5, note: 3.5 },
       });
     });
 
@@ -692,7 +741,8 @@ describe('TrajetsService', () => {
       });
       utilisateurFindUniqueMock.mockResolvedValueOnce({
         id: 'conducteur-1',
-        note: 1.2,
+        noteBrute: 1.2,
+        penaliteCumulee: 0,
       });
       reservationFindManyMock.mockResolvedValueOnce([]);
 
@@ -700,11 +750,11 @@ describe('TrajetsService', () => {
 
       expect(utilisateurUpdateMock).toHaveBeenCalledWith({
         where: { id: 'conducteur-1' },
-        data: { note: 1 },
+        data: { penaliteCumulee: 0.5, note: 1 },
       });
     });
 
-    it('does not touch the note when the conducteur has never been rated (note is null)', async () => {
+    it('accumulates the penalty (kept for the next notation recalc) even when the conducteur has never been rated (noteBrute is null)', async () => {
       trajetFindUniqueMock.mockResolvedValueOnce({
         id: 'trajet-1',
         conducteurId: 'conducteur-1',
@@ -717,13 +767,17 @@ describe('TrajetsService', () => {
       });
       utilisateurFindUniqueMock.mockResolvedValueOnce({
         id: 'conducteur-1',
-        note: null,
+        noteBrute: null,
+        penaliteCumulee: 0,
       });
       reservationFindManyMock.mockResolvedValueOnce([]);
 
       await service.annulerTrajet('conducteur-1', 'trajet-1');
 
-      expect(utilisateurUpdateMock).not.toHaveBeenCalled();
+      expect(utilisateurUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'conducteur-1' },
+        data: { penaliteCumulee: 0.5, note: null },
+      });
     });
 
     it('logs one notification per confirmed passager', async () => {
@@ -929,7 +983,8 @@ describe('TrajetsService', () => {
       });
       utilisateurFindUniqueMock.mockResolvedValueOnce({
         id: 'conducteur-1',
-        note: 4.0,
+        noteBrute: 4.0,
+        penaliteCumulee: 0,
       });
       trajetUpdateMock.mockResolvedValueOnce({
         id: 'trajet-1',
@@ -945,7 +1000,7 @@ describe('TrajetsService', () => {
       });
       expect(utilisateurUpdateMock).toHaveBeenCalledWith({
         where: { id: 'conducteur-1' },
-        data: { note: 3 },
+        data: { penaliteCumulee: 1, note: 3 },
       });
       expect(result).toEqual({ id: 'trajet-1', statut: 'annule' });
     });
@@ -965,7 +1020,8 @@ describe('TrajetsService', () => {
       });
       utilisateurFindUniqueMock.mockResolvedValueOnce({
         id: 'conducteur-1',
-        note: 1.5,
+        noteBrute: 1.5,
+        penaliteCumulee: 0,
       });
       trajetUpdateMock.mockResolvedValueOnce({
         id: 'trajet-1',
@@ -977,11 +1033,11 @@ describe('TrajetsService', () => {
 
       expect(utilisateurUpdateMock).toHaveBeenCalledWith({
         where: { id: 'conducteur-1' },
-        data: { note: 1 },
+        data: { penaliteCumulee: 1, note: 1 },
       });
     });
 
-    it('does not touch the note when the conducteur has never been rated', async () => {
+    it('accumulates the penalty even when the conducteur has never been rated', async () => {
       trajetFindUniqueMock.mockResolvedValueOnce({
         id: 'trajet-1',
         conducteurId: 'conducteur-1',
@@ -996,7 +1052,8 @@ describe('TrajetsService', () => {
       });
       utilisateurFindUniqueMock.mockResolvedValueOnce({
         id: 'conducteur-1',
-        note: null,
+        noteBrute: null,
+        penaliteCumulee: 0,
       });
       trajetUpdateMock.mockResolvedValueOnce({
         id: 'trajet-1',
@@ -1006,7 +1063,10 @@ describe('TrajetsService', () => {
 
       await service.signalerNoShow('passager-1', 'trajet-1');
 
-      expect(utilisateurUpdateMock).not.toHaveBeenCalled();
+      expect(utilisateurUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'conducteur-1' },
+        data: { penaliteCumulee: 1, note: null },
+      });
     });
 
     it('logs one notification per confirmed passager', async () => {
@@ -1024,7 +1084,8 @@ describe('TrajetsService', () => {
       });
       utilisateurFindUniqueMock.mockResolvedValueOnce({
         id: 'conducteur-1',
-        note: null,
+        noteBrute: null,
+        penaliteCumulee: 0,
       });
       trajetUpdateMock.mockResolvedValueOnce({
         id: 'trajet-1',
@@ -1056,7 +1117,8 @@ describe('TrajetsService', () => {
       });
       utilisateurFindUniqueMock.mockResolvedValueOnce({
         id: 'conducteur-1',
-        note: null,
+        noteBrute: null,
+        penaliteCumulee: 0,
       });
       trajetUpdateMock.mockResolvedValueOnce({
         id: 'trajet-1',
@@ -1213,6 +1275,7 @@ describe('TrajetsService', () => {
         nom: 'Kone',
         prenom: 'Awa',
         note: 4.5,
+        nombreNotations: 12,
       });
       documentsConducteurFindFirstMock.mockResolvedValueOnce({
         matriculeVehicule: 'CI-2847-AB',
@@ -1227,6 +1290,7 @@ describe('TrajetsService', () => {
           nom: 'Kone',
           prenom: 'Awa',
           note: 4.5,
+          nombreNotations: 12,
           verifie: true,
           matriculeVehicule: 'CI-2847-AB',
           photoVehicule: 'vehicule.jpg',
@@ -1445,7 +1509,8 @@ describe('TrajetsService', () => {
       });
       utilisateurFindUniqueMock.mockResolvedValueOnce({
         id: 'passager-1',
-        note: 4.0,
+        noteBrute: 4.0,
+        penaliteCumulee: 0,
       });
       reservationUpdateMock.mockResolvedValueOnce({
         id: 'reservation-1',
@@ -1464,7 +1529,7 @@ describe('TrajetsService', () => {
       });
       expect(utilisateurUpdateMock).toHaveBeenCalledWith({
         where: { id: 'passager-1' },
-        data: { note: 3.5 },
+        data: { penaliteCumulee: 0.5, note: 3.5 },
       });
       expect(result).toEqual({ id: 'reservation-1', statut: 'absent' });
     });
@@ -1481,7 +1546,8 @@ describe('TrajetsService', () => {
       });
       utilisateurFindUniqueMock.mockResolvedValueOnce({
         id: 'passager-1',
-        note: 1.2,
+        noteBrute: 1.2,
+        penaliteCumulee: 0,
       });
       reservationUpdateMock.mockResolvedValueOnce({
         id: 'reservation-1',
@@ -1496,11 +1562,11 @@ describe('TrajetsService', () => {
 
       expect(utilisateurUpdateMock).toHaveBeenCalledWith({
         where: { id: 'passager-1' },
-        data: { note: 1 },
+        data: { penaliteCumulee: 0.5, note: 1 },
       });
     });
 
-    it('does not touch the note when the passager has never been rated', async () => {
+    it('accumulates the penalty even when the passager has never been rated', async () => {
       trajetFindUniqueMock.mockResolvedValueOnce({
         id: 'trajet-1',
         conducteurId: 'conducteur-1',
@@ -1512,7 +1578,8 @@ describe('TrajetsService', () => {
       });
       utilisateurFindUniqueMock.mockResolvedValueOnce({
         id: 'passager-1',
-        note: null,
+        noteBrute: null,
+        penaliteCumulee: 0,
       });
       reservationUpdateMock.mockResolvedValueOnce({
         id: 'reservation-1',
@@ -1525,7 +1592,10 @@ describe('TrajetsService', () => {
         'passager-1',
       );
 
-      expect(utilisateurUpdateMock).not.toHaveBeenCalled();
+      expect(utilisateurUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'passager-1' },
+        data: { penaliteCumulee: 0.5, note: null },
+      });
     });
 
     it('creates a Signalement for the passager (Story 7.1)', async () => {

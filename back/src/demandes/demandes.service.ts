@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { distanceKm } from '../common/utils/haversine';
+import { resolveUniversitesProches } from '../common/utils/universites-proches';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrajetsService } from '../trajets/trajets.service';
 import { CreateDemandeDto } from './dto/create-demande.dto';
@@ -135,10 +136,18 @@ export class DemandesService {
     communeId: string,
     userId: string,
   ) {
+    const universiteIds = await resolveUniversitesProches(
+      this.prisma,
+      universiteId,
+    );
     const demandes = await this.prisma.demande.findMany({
-      where: { universiteId, communeId, statut: 'ouverte' },
+      where: {
+        universiteId: { in: universiteIds },
+        communeId,
+        statut: 'ouverte',
+      },
       include: {
-        createur: { select: { id: true, nom: true, prenom: true, note: true } },
+        createur: { select: { id: true, nom: true, prenom: true, note: true, nombreNotations: true } },
       },
       orderBy: { heure: 'asc' },
     });
@@ -339,15 +348,19 @@ export class DemandesService {
   }
 
   async listerDemandesDisponibles(universiteId: string, communeId: string) {
+    const universiteIds = await resolveUniversitesProches(
+      this.prisma,
+      universiteId,
+    );
     return this.prisma.demande.findMany({
       where: {
-        universiteId,
+        universiteId: { in: universiteIds },
         communeId,
         statut: 'quota_atteint',
         poiId: { not: null },
       },
       include: {
-        createur: { select: { id: true, nom: true, prenom: true, note: true } },
+        createur: { select: { id: true, nom: true, prenom: true, note: true, nombreNotations: true } },
         poi: true,
       },
       orderBy: { heure: 'asc' },
@@ -362,7 +375,7 @@ export class DemandesService {
     const demande = await this.prisma.demande.findUnique({
       where: { id: demandeId },
       include: {
-        createur: { select: { id: true, nom: true, prenom: true, note: true } },
+        createur: { select: { id: true, nom: true, prenom: true, note: true, nombreNotations: true } },
         universite: true,
         commune: true,
         poi: true,
@@ -389,6 +402,7 @@ export class DemandesService {
       nom: string | null;
       prenom: string | null;
       note: number | null;
+      nombreNotations: number;
       matriculeVehicule: string | null;
     } | null = null;
     if (demande.trajetId) {
@@ -408,6 +422,7 @@ export class DemandesService {
               nom: conducteurUser.nom,
               prenom: conducteurUser.prenom,
               note: conducteurUser.note,
+              nombreNotations: conducteurUser.nombreNotations,
               matriculeVehicule: documents?.matriculeVehicule ?? null,
             }
           : null;

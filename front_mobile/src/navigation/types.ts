@@ -1,6 +1,6 @@
 export type MainTabsParamList = {
   Accueil: undefined;
-  MesTrajetsPassager: undefined;
+  MesTrajetsPassager: { tab?: 'encours' | 'historique' } | undefined;
   MessagesHub: undefined;
   Profil: undefined;
 };
@@ -13,10 +13,15 @@ export type RootStackParamList = {
   MainTabs: undefined;
   InscriptionConducteur: undefined;
   CompleterProfil: undefined;
+  ChoisirUniversite: undefined;
   TrajetDetail: { trajetId: string };
   Rencontre: { trajetId: string };
   PublierTrajet: undefined;
-  MesTrajetsConducteur: undefined;
+  MesTrajetsConducteur: { tab?: 'avenir' | 'termines' } | undefined;
+  MesInformations: undefined;
+  Parametres: undefined;
+  Aide: undefined;
+  Avis: { userId: string; nom: string };
   Messagerie: { trajetId: string };
   Notation: {
     trajetId: string;

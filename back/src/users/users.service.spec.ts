@@ -13,6 +13,7 @@ describe('UsersService', () => {
   let updateUtilisateurMock: jest.Mock;
   let findManyUtilisateurMock: jest.Mock;
   let findUniqueUtilisateurMock: jest.Mock;
+  let findUniqueUniversiteMock: jest.Mock;
   let findFirstConducteurMock: jest.Mock;
   let findManyConducteurMock: jest.Mock;
   let findUniqueConducteurMock: jest.Mock;
@@ -25,6 +26,7 @@ describe('UsersService', () => {
     updateUtilisateurMock = jest.fn();
     findManyUtilisateurMock = jest.fn();
     findUniqueUtilisateurMock = jest.fn();
+    findUniqueUniversiteMock = jest.fn();
     findFirstConducteurMock = jest.fn();
     findManyConducteurMock = jest.fn();
     findUniqueConducteurMock = jest.fn();
@@ -43,6 +45,9 @@ describe('UsersService', () => {
               update: updateUtilisateurMock,
               findMany: findManyUtilisateurMock,
               findUnique: findUniqueUtilisateurMock,
+            },
+            universite: {
+              findUnique: findUniqueUniversiteMock,
             },
             documentsConducteur: {
               findFirst: findFirstConducteurMock,
@@ -74,20 +79,87 @@ describe('UsersService', () => {
     expect(result).toEqual({ id: 'user-1', telephone: '+2250700000000' });
   });
 
-  describe('updateNom', () => {
+  describe('updateProfil', () => {
     it('updates the nom of the given user', async () => {
       updateUtilisateurMock.mockResolvedValueOnce({
         id: 'user-1',
         nom: 'Kouassi',
       });
 
-      const result = await service.updateNom('user-1', 'Kouassi');
+      const result = await service.updateProfil('user-1', { nom: 'Kouassi' });
 
+      expect(findUniqueUniversiteMock).not.toHaveBeenCalled();
       expect(updateUtilisateurMock).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: { nom: 'Kouassi' },
       });
       expect(result).toEqual({ id: 'user-1', nom: 'Kouassi' });
+    });
+
+    it('updates the universiteId when the universite exists', async () => {
+      findUniqueUniversiteMock.mockResolvedValueOnce({ id: 'univ-1' });
+      updateUtilisateurMock.mockResolvedValueOnce({
+        id: 'user-1',
+        universiteId: 'univ-1',
+      });
+
+      const result = await service.updateProfil('user-1', {
+        universiteId: 'univ-1',
+      });
+
+      expect(findUniqueUniversiteMock).toHaveBeenCalledWith({
+        where: { id: 'univ-1' },
+      });
+      expect(updateUtilisateurMock).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { universiteId: 'univ-1' },
+      });
+      expect(result).toEqual({ id: 'user-1', universiteId: 'univ-1' });
+    });
+
+    it('throws BadRequestException when the universiteId does not exist', async () => {
+      findUniqueUniversiteMock.mockResolvedValueOnce(null);
+
+      await expect(
+        service.updateProfil('user-1', { universiteId: 'univ-missing' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(updateUtilisateurMock).not.toHaveBeenCalled();
+    });
+
+    it('updates both nom and universiteId together', async () => {
+      findUniqueUniversiteMock.mockResolvedValueOnce({ id: 'univ-1' });
+      updateUtilisateurMock.mockResolvedValueOnce({
+        id: 'user-1',
+        nom: 'Kouassi',
+        universiteId: 'univ-1',
+      });
+
+      await service.updateProfil('user-1', {
+        nom: 'Kouassi',
+        universiteId: 'univ-1',
+      });
+
+      expect(updateUtilisateurMock).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { nom: 'Kouassi', universiteId: 'univ-1' },
+      });
+    });
+  });
+
+  describe('findByIdAvecUniversite', () => {
+    it('includes the universite relation', async () => {
+      findUniqueOrThrowMock.mockResolvedValueOnce({
+        id: 'user-1',
+        universite: { id: 'univ-1', nom: 'FHB Cocody' },
+      });
+
+      const result = await service.findByIdAvecUniversite('user-1');
+
+      expect(findUniqueOrThrowMock).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        include: { universite: true },
+      });
+      expect(result.universite).toEqual({ id: 'univ-1', nom: 'FHB Cocody' });
     });
   });
 

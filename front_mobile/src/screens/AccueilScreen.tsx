@@ -23,25 +23,33 @@ import {
   listCommunes,
   listerDemandes,
   listerMesDemandes,
+  listerNotationsEnAttente,
+  listPointsInteret,
   listTrajets,
   listUniversites,
   rejoindreDemande,
+  updateUniversite,
   Commune,
   Demande,
   MesDemandesDemande,
+  NotationEnAttente,
+  PointInteret,
   Trajet,
   Universite,
 } from '../api/client';
 import { formatPlacesRestantes } from '../utils/places';
 import { getDisplayName } from '../utils/profile';
+import { nearestCommune } from '../utils/nearestCommune';
 import { useRefreshOnForeground } from '../hooks/useRefreshOnForeground';
 import { Avatar } from '../components/Avatar';
 import { BurgerButton } from '../components/BurgerButton';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { ErrorState } from '../components/ErrorState';
-import { ArrowRightIcon, ChevronDownIcon, PlusIcon, StarIcon } from '../components/icons';
+import { LocationBanner } from '../components/LocationBanner';
+import { ArrowRightIcon, ChevronDownIcon, PencilIcon, PinIcon, PlusIcon, StarIcon } from '../components/icons';
 import { RejoindrePositionModal } from '../components/RejoindrePositionModal';
+import { SearchableListModal } from '../components/SearchableListModal';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { Tag } from '../components/Tag';
 import { H4, H5, MutedText } from '../components/Typography';
@@ -56,14 +64,16 @@ interface PickerOption {
   label: string;
 }
 
-// Selecteur "Université / Commune" cote-a-cote de UI_inspo (ecran 4).
-function DropdownField({
+// Puce "commune de depart" de la barre compacte -- liste courte (14
+// communes), pas de recherche (voir PickerField.searchable, reserve aux
+// listes longues). L'universite, elle, ne passe plus par ce mecanisme : elle
+// vient du profil (voir plus bas), modifiable via SearchableListModal.
+function CommuneChip({
   label,
   options,
   onSelect,
 }: {
   label: string | null;
-  placeholder?: string;
   options: PickerOption[];
   onSelect: (id: string) => void;
 }) {
@@ -72,11 +82,12 @@ function DropdownField({
 
   return (
     <>
-      <TouchableOpacity style={styles.dropdown} onPress={() => setOpen(true)}>
-        <Text style={styles.dropdownText} numberOfLines={1}>
-          {label ?? 'Choisir…'}
+      <TouchableOpacity style={styles.chip} onPress={() => setOpen(true)}>
+        <PinIcon size={14} color={colors.text} />
+        <Text style={styles.chipText} numberOfLines={1}>
+          {label ?? 'Ma commune'}
         </Text>
-        <ChevronDownIcon color={colors.text} />
+        <ChevronDownIcon size={11} color={colors.textMuted} />
       </TouchableOpacity>
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
         <View
@@ -85,6 +96,7 @@ function DropdownField({
             { paddingTop: insets.top + 24, paddingBottom: insets.bottom },
           ]}
         >
+          <Text style={styles.modalTitle}>Ta commune de départ</Text>
           <FlatList
             data={options}
             keyExtractor={(item) => item.id}
@@ -123,7 +135,14 @@ export default function AccueilScreen({ navigation }: Props) {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [universites, setUniversites] = useState<Universite[]>([]);
   const [communes, setCommunes] = useState<Commune[]>([]);
+  // L'universite vient desormais du profil (renseignee une fois, voir
+  // ChoisirUniversiteScreen) au lieu d'etre re-choisie a chaque visite --
+  // profileLoaded distingue "pas encore su" de "confirme absente", pour ne
+  // pas flasher l'etat "Choisis ton universite" le temps du premier fetch.
   const [universiteId, setUniversiteId] = useState<string | null>(null);
+  const [universiteNom, setUniversiteNom] = useState<string | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [universiteModalOpen, setUniversiteModalOpen] = useState(false);
   const [communeId, setCommuneId] = useState<string | null>(null);
   const [trajets, setTrajets] = useState<Trajet[]>([]);
   const [demandes, setDemandes] = useState<Demande[]>([]);
@@ -145,26 +164,65 @@ export default function AccueilScreen({ navigation }: Props) {
 
   useEffect(() => {
     getProfile()
-      .then((profile) =>
+      .then((profile) => {
         setDisplayName(
           getDisplayName(profile.nom, profile.prenom, profile.telephone),
-        ),
-      )
-      .catch(() => undefined);
+        );
+        setUniversiteId(profile.universiteId);
+        setUniversiteNom(profile.universite?.nom ?? null);
+      })
+      .catch(() => undefined)
+      .finally(() => setProfileLoaded(true));
   }, []);
 
+  function handleChoisirUniversite(id: string) {
+    const nom = universites.find((u) => u.id === id)?.nom ?? null;
+    setUniversiteId(id);
+    setUniversiteNom(nom);
+    setUniversiteModalOpen(false);
+    updateUniversite(id).catch(() => undefined);
+  }
+
+  const [pointsInteret, setPointsInteret] = useState<PointInteret[]>([]);
+
   const loadReferentiel = useCallback(async () => {
-    const [universitesData, communesData] = await Promise.all([
+    const [universitesData, communesData, pointsInteretData] = await Promise.all([
       listUniversites(),
       listCommunes(),
+      listPointsInteret(),
     ]);
     setUniversites(universitesData);
     setCommunes(communesData);
+    setPointsInteret(pointsInteretData);
   }, []);
 
   useEffect(() => {
     void loadReferentiel();
   }, [loadReferentiel]);
+
+  // Devine la commune de depart depuis le GPS (si la permission est deja
+  // accordee) au lieu de partir sur un champ vide -- reste modifiable par
+  // l'utilisateur ensuite, ce n'est qu'un pre-remplissage. On ne redemande
+  // jamais la permission ici : LocationBanner s'en charge deja si besoin.
+  useEffect(() => {
+    if (communeId || pointsInteret.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== 'granted' || cancelled) return;
+      const position = await Location.getCurrentPositionAsync({}).catch(() => null);
+      if (!position || cancelled) return;
+      const commune = nearestCommune(
+        position.coords.latitude,
+        position.coords.longitude,
+        pointsInteret,
+      );
+      if (commune && !cancelled) setCommuneId((current) => current ?? commune.id);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [communeId, pointsInteret]);
 
   const loadTrajets = useCallback(
     async (lat?: number, lng?: number) => {
@@ -262,6 +320,22 @@ export default function AccueilScreen({ navigation }: Props) {
     return unsubscribe;
   }, [navigation, loadMesDemandes]);
 
+  // Rappel "a noter" : sans lui, les moyennes reposent sur trop peu d'avis
+  // pour etre fiables (personne ne pense a revenir noter spontanement).
+  const [notationsEnAttente, setNotationsEnAttente] = useState<
+    NotationEnAttente[]
+  >([]);
+  const loadNotationsEnAttente = useCallback(() => {
+    listerNotationsEnAttente()
+      .then(setNotationsEnAttente)
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', loadNotationsEnAttente);
+    return unsubscribe;
+  }, [navigation, loadNotationsEnAttente]);
+
   async function handleAnnulerDemande(demandeId: string) {
     setAnnulerPendingId(demandeId);
     setAnnulerError(null);
@@ -317,33 +391,55 @@ export default function AccueilScreen({ navigation }: Props) {
     void loadTrajets(position.coords.latitude, position.coords.longitude);
   }
 
-  const universiteLabel = universites.find((u) => u.id === universiteId)?.nom ?? null;
   const communeLabel = communes.find((c) => c.id === communeId)?.nom ?? null;
   const ready = Boolean(universiteId && communeId);
 
   return (
     <View style={styles.container}>
+      <LocationBanner />
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerTitleRow}>
           <H4>Salut{displayName ? `, ${displayName}` : ''}</H4>
           <BurgerButton onPress={() => navigation.navigate('Profil')} />
         </View>
-        <View style={styles.dropdownRow}>
-          <DropdownField
-            label={universiteLabel}
-            options={universites.map((u) => ({ id: u.id, label: u.nom }))}
-            onSelect={setUniversiteId}
-          />
-          <DropdownField
-            label={communeLabel}
-            options={communes.map((c) => ({ id: c.id, label: c.nom }))}
-            onSelect={setCommuneId}
-          />
-        </View>
-        <MutedText style={styles.caption}>
-          Université de destination · Commune de départ
-        </MutedText>
+
+        {universiteId ? (
+          <View style={styles.compactBar}>
+            <CommuneChip
+              label={communeLabel}
+              options={communes.map((c) => ({ id: c.id, label: c.nom }))}
+              onSelect={setCommuneId}
+            />
+            <View style={styles.compactDivider} />
+            <TouchableOpacity
+              style={styles.chip}
+              onPress={() => setUniversiteModalOpen(true)}
+            >
+              <Text style={styles.chipText} numberOfLines={1}>
+                {universiteNom ?? 'Ton université'}
+              </Text>
+              <PencilIcon size={12} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </View>
+
+      {notationsEnAttente.length > 0 ? (
+        <TouchableOpacity
+          style={styles.rappelBanner}
+          onPress={() => {
+            const [premier, ...reste] = notationsEnAttente;
+            setNotationsEnAttente(reste);
+            navigation.navigate('Notation', premier);
+          }}
+        >
+          <Text style={styles.rappelText}>
+            Tu as {notationsEnAttente.length} trajet
+            {notationsEnAttente.length > 1 ? 's' : ''} à noter
+          </Text>
+          <ArrowRightIcon color={colors.background} />
+        </TouchableOpacity>
+      ) : null}
 
       {mesDemandes.length > 0 ? (
         <View style={styles.mesDemandesSection}>
@@ -471,7 +567,8 @@ export default function AccueilScreen({ navigation }: Props) {
                           <View style={styles.metaInline}>
                             <StarIcon />
                             <MutedText style={styles.metaText}>
-                              {item.trajet.conducteur.note.toFixed(1)}
+                              {item.trajet.conducteur.note.toFixed(1)} (
+                              {item.trajet.conducteur.nombreNotations})
                             </MutedText>
                           </View>
                         ) : null}
@@ -541,26 +638,53 @@ export default function AccueilScreen({ navigation }: Props) {
             />
           )}
         </View>
+      ) : !profileLoaded ? (
+        <View style={styles.body}>
+          <ActivityIndicator color={colors.accent} style={styles.loader} />
+        </View>
+      ) : !universiteId ? (
+        <View style={styles.body}>
+          <MutedText style={styles.empty}>
+            Choisis ton université pour voir les trajets et demandes qui te
+            concernent.
+          </MutedText>
+          <Button
+            title="Choisir mon université"
+            block
+            onPress={() => setUniversiteModalOpen(true)}
+          />
+        </View>
       ) : (
         <View style={styles.body}>
           <MutedText style={styles.empty}>
-            Choisis ton université et ta commune pour voir les trajets et
-            demandes disponibles.
+            Choisis ta commune de départ pour voir les trajets et demandes
+            disponibles.
           </MutedText>
         </View>
       )}
 
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() =>
-          navigation.navigate('CreerDemande', {
-            universiteId: universiteId ?? undefined,
-            communeId: communeId ?? undefined,
-          })
-        }
-      >
-        <PlusIcon />
-      </TouchableOpacity>
+      <SearchableListModal
+        visible={universiteModalOpen}
+        title="Ton université"
+        searchPlaceholder="Rechercher ton université…"
+        options={universites.map((u) => ({ id: u.id, label: u.nom, sublabel: u.commune }))}
+        onSelect={handleChoisirUniversite}
+        onClose={() => setUniversiteModalOpen(false)}
+      />
+
+      {universiteId ? (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() =>
+            navigation.navigate('CreerDemande', {
+              universiteId,
+              communeId: communeId ?? undefined,
+            })
+          }
+        >
+          <PlusIcon />
+        </TouchableOpacity>
+      ) : null}
 
       {joinModalDemandeId && communeId ? (
         <RejoindrePositionModal
@@ -594,30 +718,37 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  dropdownRow: {
+  compactBar: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 6,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.divider,
+    backgroundColor: colors.background,
   },
-  dropdown: {
+  compactDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: colors.divider,
+  },
+  chip: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: colors.divider,
+    gap: 6,
     paddingHorizontal: 11,
-    paddingVertical: 9,
+    paddingVertical: 10,
   },
-  dropdownText: {
+  chipText: {
+    flex: 1,
     fontFamily: fonts.headingSemiBold,
     fontSize: 13.5,
     color: colors.text,
-    flexShrink: 1,
   },
-  caption: {
-    fontSize: 11,
-    marginBottom: 12,
+  modalTitle: {
+    fontFamily: fonts.heading,
+    fontSize: 18,
+    color: colors.text,
+    marginBottom: 14,
   },
   segRow: {
     marginBottom: 12,
@@ -671,6 +802,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 14,
     gap: 10,
+  },
+  rappelBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 20,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: colors.text,
+  },
+  rappelText: {
+    fontFamily: fonts.headingSemiBold,
+    fontSize: 13,
+    color: colors.background,
   },
   rowBetween: {
     flexDirection: 'row',

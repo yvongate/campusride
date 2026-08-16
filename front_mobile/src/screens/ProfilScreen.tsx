@@ -19,12 +19,12 @@ type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackParamList>
 >;
 
-function MenuRow({ label }: { label: string }) {
+function MenuRow({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <View style={styles.menuRow}>
+    <TouchableOpacity style={styles.menuRow} onPress={onPress}>
       <Text style={styles.menuLabel}>{label}</Text>
       <ChevronRightIcon color={colors.text} />
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -88,7 +88,9 @@ export default function ProfilScreen({ navigation }: Props) {
     profile.telephone,
   );
   const noteLabel =
-    profile.note !== null ? `★ ${profile.note.toFixed(1)}` : 'Pas encore noté';
+    profile.note !== null
+      ? `★ ${profile.note.toFixed(1)} (${profile.nombreNotations} avis)`
+      : 'Pas encore noté';
   const demandeEnAttente = profile.conducteurStatut === 'en attente';
   const demandeRefusee = profile.conducteurStatut === 'refuse';
   const estConducteur = profile.conducteurStatut === 'valide';
@@ -136,9 +138,23 @@ export default function ProfilScreen({ navigation }: Props) {
               />
             </View>
             <View style={styles.menu}>
-              <MenuRow label="Historique des trajets" />
-              <MenuRow label="Véhicule & documents" />
-              <MenuRow label="Paramètres" />
+              <MenuRow
+                label="Mes informations"
+                onPress={() => navigation.navigate('MesInformations')}
+              />
+              <MenuRow
+                label="Historique des trajets"
+                onPress={() =>
+                  navigation.navigate('MesTrajetsConducteur', {
+                    tab: 'termines',
+                  })
+                }
+              />
+              <MenuRow
+                label="Paramètres"
+                onPress={() => navigation.navigate('Parametres')}
+              />
+              <MenuRow label="Aide" onPress={() => navigation.navigate('Aide')} />
             </View>
           </>
         ) : (
@@ -161,10 +177,23 @@ export default function ProfilScreen({ navigation }: Props) {
               )}
             </View>
             <View style={styles.menu}>
-              <MenuRow label="Mes informations" />
-              <MenuRow label="Historique des trajets" />
-              <MenuRow label="Paramètres" />
-              <MenuRow label="Aide" />
+              <MenuRow
+                label="Mes informations"
+                onPress={() => navigation.navigate('MesInformations')}
+              />
+              <MenuRow
+                label="Historique des trajets"
+                onPress={() =>
+                  navigation.navigate('MesTrajetsPassager', {
+                    tab: 'historique',
+                  })
+                }
+              />
+              <MenuRow
+                label="Paramètres"
+                onPress={() => navigation.navigate('Parametres')}
+              />
+              <MenuRow label="Aide" onPress={() => navigation.navigate('Aide')} />
             </View>
           </>
         )}

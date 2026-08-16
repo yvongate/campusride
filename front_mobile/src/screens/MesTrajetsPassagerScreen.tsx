@@ -78,11 +78,19 @@ function demandeStatutTag(statut: string) {
 // l'Accueil).
 const DEMANDE_STATUTS_EN_COURS = ['ouverte', 'quota_atteint', 'acceptee'];
 
-export default function MesTrajetsPassagerScreen({ navigation }: Props) {
+export default function MesTrajetsPassagerScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const [trajets, setTrajets] = useState<MesReservationsTrajet[]>([]);
   const [demandes, setDemandes] = useState<MesDemandesDemande[]>([]);
-  const [tab, setTab] = useState<'encours' | 'historique'>('encours');
+  // Ouvrable directement sur l'historique depuis le menu Profil.
+  const tabDemande = route.params?.tab;
+  const [tab, setTab] = useState<'encours' | 'historique'>(
+    tabDemande ?? 'encours',
+  );
+
+  useEffect(() => {
+    if (tabDemande) setTab(tabDemande);
+  }, [tabDemande]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);

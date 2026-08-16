@@ -7,19 +7,20 @@ import type { RootStackParamList } from '../navigation/types';
 import { colors, fonts } from '../theme';
 import {
   creerDemande,
+  getProfile,
   listCommunes,
   listPointsInteret,
-  listQuartiers,
   listUniversites,
   Commune,
   PointInteret,
-  Quartier,
   Universite,
 } from '../api/client';
+import { nearestCommune } from '../utils/nearestCommune';
 import { Button } from '../components/Button';
 import { DateTimeField } from '../components/DateTimeField';
 import { Field, Input } from '../components/Field';
 import { ChevronRightIcon } from '../components/icons';
+import { LocationBanner } from '../components/LocationBanner';
 import { MapPinPicker } from '../components/MapPinPicker';
 import { PickerField } from '../components/PickerField';
 import { ScreenFooter } from '../components/ScreenFooter';
@@ -54,7 +55,11 @@ function extractErrorMessage(error: unknown, fallback: string): string {
 export default function CreerDemandeScreen({ navigation, route }: Props) {
   const [universites, setUniversites] = useState<Universite[]>([]);
   const [communes, setCommunes] = useState<Commune[]>([]);
-  const [quartiers, setQuartiers] = useState<Quartier[]>([]);
+  // Tous les points de repere d'un coup (plus de cascade commune -> quartier
+  // -> POI) : recherche libre, la commune/quartier de la demande se deduit
+  // ensuite du POI choisi (voir handleSelectPoi) -- le backend ne valide de
+  // toute facon aucune coherence entre communeId et le POI (voir
+  // DemandesService.creerDemande, "quartier" y est un tag informatif).
   const [pointsInteret, setPointsInteret] = useState<PointInteret[]>([]);
   // Pre-rempli avec les filtres deja choisis sur l'ecran Accueil (memes
   // valeurs que listerDemandes y utilisera au retour) pour eviter qu'une
@@ -66,7 +71,6 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
   const [communeId, setCommuneId] = useState<string | null>(
     route.params?.communeId ?? null,
   );
-  const [quartierId, setQuartierId] = useState<string | null>(null);
   const [poiId, setPoiId] = useState<string | null>(null);
   const [poiPosition, setPoiPosition] = useState<{ lat: number; lng: number } | null>(
     null,
@@ -77,21 +81,17 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
     null,
   );
   const [locatingLoading, setLocatingLoading] = useState(false);
+  const [positionError, setPositionError] = useState<string | null>(null);
   const [dateHeure, setDateHeure] = useState(() => new Date());
-  // Le createur n'est pas forcement seul (ex. deja avec un frere/une amie) --
-  // dejaPresents = combien sont deja ensemble (createur inclus), separement
-  // du nombre d'AUTRES personnes recherchees. placesRecherchees envoye au
-  // backend = dejaPresents + autresPersonnes (le backend compte le groupe
-  // total). Capacite voiture = 4 passagers max (sans compter le chauffeur,
-  // meme constante que PublierTrajetScreen).
+  // Un seul chiffre, exprime du point de vue de l'utilisateur : combien de
+  // personnes il CHERCHE. Le backend, lui, attend placesRecherchees = total
+  // de participants createur inclus (le quota tombe quand
+  // participationsConfirmees >= placesRecherchees), d'où le +1 a l'envoi.
+  // Deux steppers separes n'apportaient rien : seule leur somme partait.
+  // Capacite voiture = 4 passagers max, chauffeur non compris (meme
+  // constante que PublierTrajetScreen).
   const PLACES_MAX = 4;
-  const [dejaPresents, setDejaPresents] = useState(1);
-  const [autresPersonnes, setAutresPersonnes] = useState(2);
-  const autresPersonnesMax = Math.max(1, PLACES_MAX - dejaPresents);
-
-  useEffect(() => {
-    setAutresPersonnes((current) => Math.min(current, autresPersonnesMax));
-  }, [autresPersonnesMax]);
+  const [personnesRecherchees, setPersonnesRecherchees] = useState(2);
   const [cotisation, setCotisation] = useState('');
   const [loadingReferentiel, setLoadingReferentiel] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -100,12 +100,14 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
   const loadReferentiel = useCallback(async () => {
     setLoadingReferentiel(true);
     try {
-      const [universitesData, communesData] = await Promise.all([
+      const [universitesData, communesData, pointsInteretData] = await Promise.all([
         listUniversites(),
         listCommunes(),
+        listPointsInteret(),
       ]);
       setUniversites(universitesData);
       setCommunes(communesData);
+      setPointsInteret(pointsInteretData);
     } finally {
       setLoadingReferentiel(false);
     }
@@ -115,58 +117,83 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
     void loadReferentiel();
   }, [loadReferentiel]);
 
+  // Repli si l'ecran est ouvert sans parametres (ex. pas depuis le FAB
+  // Accueil) : on reutilise l'universite du profil, jamais choisie a la main
+  // ici en premier -- voir ChoisirUniversiteScreen.
   useEffect(() => {
-    if (!communeId) {
-      setQuartiers([]);
-      setQuartierId(null);
-      return;
-    }
-    listQuartiers(communeId).then(setQuartiers);
-  }, [communeId]);
-
-  useEffect(() => {
-    if (chezMoi || !quartierId) {
-      setPointsInteret([]);
-      setPoiId(null);
-      setPoiPosition(null);
-      return;
-    }
-    listPointsInteret(quartierId).then(setPointsInteret);
-  }, [chezMoi, quartierId]);
+    if (route.params?.universiteId) return;
+    getProfile()
+      .then((profile) => {
+        if (profile.universiteId) setUniversiteId(profile.universiteId);
+      })
+      .catch(() => undefined);
+  }, [route.params?.universiteId]);
 
   function handleSelectPoi(id: string) {
     setPoiId(id);
     setPoiPosition(null);
+    // La commune de la demande se deduit du POI choisi -- plus de selection
+    // manuelle separee pour ce cas (voir note plus haut sur pointsInteret).
+    const poi = pointsInteret.find((p) => p.id === id);
+    if (poi) setCommuneId(poi.quartier.commune.id);
   }
 
-  async function handleUseLocation() {
+  const recupererPosition = useCallback(async () => {
     setLocatingLoading(true);
-    setError(null);
+    setPositionError(null);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        setError('Autorisation de localisation refusée.');
+        setPositionError(
+          'Autorisation de localisation refusée. Active-la dans les réglages, ou réponds « Non » ci-dessus pour choisir un point de repère.',
+        );
         return;
       }
       const result = await Location.getCurrentPositionAsync({});
       setPosition({ lat: result.coords.latitude, lng: result.coords.longitude });
+      // Pre-remplit la commune de depart depuis le GPS (devinee via le POI
+      // connu le plus proche, voir utils/nearestCommune) au lieu de laisser
+      // ce champ vide alors qu'on vient de localiser l'utilisateur -- ne
+      // touche pas a un choix deja fait a la main (updater fonctionnel).
+      const commune = nearestCommune(
+        result.coords.latitude,
+        result.coords.longitude,
+        pointsInteret,
+      );
+      if (commune) setCommuneId((current) => current ?? commune.id);
+    } catch {
+      setPositionError('Impossible de récupérer ta position.');
     } finally {
       setLocatingLoading(false);
     }
-  }
+  }, [pointsInteret]);
+
+  // L'autorisation est deja accordee a l'inscription (LocalisationScreen) :
+  // inutile de faire retaper un bouton, on recupere la position des que
+  // l'utilisateur dit etre chez lui. Pas de boucle : en cas d'echec `position`
+  // reste null mais aucune dependance ne change, d'ou le bouton "Reessayer".
+  useEffect(() => {
+    if (!chezMoi || position) return;
+    void recupererPosition();
+  }, [chezMoi, position, recupererPosition]);
 
   async function handleSubmit() {
     setError(null);
 
-    if (!universiteId || !communeId) {
-      setError('Choisis ton université et ta commune.');
+    if (!universiteId) {
+      setError('Choisis ton université.');
       return;
     }
-    if (chezMoi && !position) {
-      setError('Récupère ta position avant de continuer.');
-      return;
-    }
-    if (!chezMoi && !poiId) {
+    if (chezMoi) {
+      if (!communeId) {
+        setError('Choisis ta commune de départ.');
+        return;
+      }
+      if (!position) {
+        setError('Récupère ta position avant de continuer.');
+        return;
+      }
+    } else if (!poiId || !communeId) {
       setError('Choisis un point de repère.');
       return;
     }
@@ -182,7 +209,7 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
         universiteId,
         communeId,
         heure: dateHeure.toISOString(),
-        placesRecherchees: dejaPresents + autresPersonnes,
+        placesRecherchees: personnesRecherchees + 1,
         cotisation: cotisationNum,
         chezMoi,
         ...(chezMoi
@@ -192,7 +219,7 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
               lat: poiPosition?.lat,
               lng: poiPosition?.lng,
             }),
-        quartierId: quartierId ?? undefined,
+        quartierId: chezMoi ? undefined : selectedPoi?.quartierId,
       });
       navigation.replace('PointDeRegroupement', { demandeId: demande.id });
     } catch (e) {
@@ -212,12 +239,14 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
 
   const universiteLabel = universites.find((u) => u.id === universiteId)?.nom ?? null;
   const communeLabel = communes.find((c) => c.id === communeId)?.nom ?? null;
-  const quartierLabel = quartiers.find((q) => q.id === quartierId)?.nom ?? null;
   const selectedPoi = pointsInteret.find((p) => p.id === poiId) ?? null;
-  const poiLabel = selectedPoi?.nom ?? null;
+  const poiLabel = selectedPoi
+    ? `${selectedPoi.nom} (${selectedPoi.quartier.commune.nom})`
+    : null;
 
   return (
     <View style={styles.container}>
+      <LocationBanner />
       <ScreenHeader title="Créer une demande" onBack={() => navigation.goBack()} />
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -225,17 +254,10 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
           label="Université de destination"
           placeholder="Choisir une université"
           selectedLabel={universiteLabel}
-          options={universites.map((u) => ({ id: u.id, label: u.nom }))}
+          options={universites.map((u) => ({ id: u.id, label: u.nom, sublabel: u.commune }))}
           onSelect={setUniversiteId}
+          searchable
         />
-        <PickerField
-          label="Commune de départ"
-          placeholder="Choisir une commune"
-          selectedLabel={communeLabel}
-          options={communes.map((c) => ({ id: c.id, label: c.nom }))}
-          onSelect={setCommuneId}
-        />
-
         <View style={styles.locRow}>
           <View style={styles.locLabel}>
             <Text style={styles.locLabelText}>Je suis chez moi actuellement</Text>
@@ -247,43 +269,66 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
               { value: 'non', label: 'Non' },
             ]}
             value={chezMoi ? 'oui' : 'non'}
-            onChange={(value) => setChezMoi(value === 'oui')}
+            onChange={(value) => {
+              // On efface les champs propres a l'autre branche pour ne pas
+              // soumettre une commune deduite d'un ancien POI (ou une
+              // position GPS perimee) sans que l'utilisateur l'ait choisie
+              // pour ce mode-ci.
+              setChezMoi(value === 'oui');
+              setCommuneId(null);
+              setPoiId(null);
+              setPoiPosition(null);
+              setPosition(null);
+            }}
           />
         </View>
 
-        <PickerField
-          label="Quartier (optionnel)"
-          placeholder="Choisir un quartier"
-          selectedLabel={quartierLabel}
-          options={quartiers.map((q) => ({ id: q.id, label: q.nom }))}
-          onSelect={setQuartierId}
-        />
-
         {chezMoi ? (
-          <Field label="Position">
-            <TouchableOpacity
-              style={styles.locationButton}
-              onPress={() => void handleUseLocation()}
-              disabled={locatingLoading}
-            >
-              <Text style={styles.locationButtonText}>
-                {locatingLoading
-                  ? 'Localisation...'
-                  : position
-                    ? 'Position récupérée ✓'
-                    : 'Utiliser ma position GPS'}
-              </Text>
-            </TouchableOpacity>
-          </Field>
+          <>
+            <PickerField
+              label="Commune de départ"
+              placeholder="Choisir une commune"
+              selectedLabel={communeLabel}
+              options={communes.map((c) => ({ id: c.id, label: c.nom }))}
+              onSelect={setCommuneId}
+            />
+            <Field label="Ta position">
+              {locatingLoading ? (
+                <View style={styles.posRow}>
+                  <ActivityIndicator color={colors.accent} size="small" />
+                  <MutedText style={styles.posText}>Localisation…</MutedText>
+                </View>
+              ) : position ? (
+                <View style={styles.posRow}>
+                  <Text style={styles.posOk}>Position récupérée ✓</Text>
+                </View>
+              ) : (
+                <View style={styles.posRetry}>
+                  <Text style={styles.error}>
+                    {positionError ?? 'Position non disponible.'}
+                  </Text>
+                  <Button
+                    title="Réessayer"
+                    variant="secondary"
+                    onPress={() => void recupererPosition()}
+                  />
+                </View>
+              )}
+            </Field>
+          </>
         ) : (
           <>
             <PickerField
               label="Point de repère"
-              placeholder={quartierId ? 'Choisir un point de repère' : "Choisis un quartier d'abord"}
+              placeholder="Rechercher un point de repère"
               selectedLabel={poiLabel}
-              options={pointsInteret.map((p) => ({ id: p.id, label: p.nom }))}
+              options={pointsInteret.map((p) => ({
+                id: p.id,
+                label: p.nom,
+                sublabel: `${p.quartier.nom}, ${p.quartier.commune.nom}`,
+              }))}
               onSelect={handleSelectPoi}
-              disabled={!quartierId}
+              searchable
             />
             {selectedPoi ? (
               <Field label="Ta position de départ exacte (optionnel)">
@@ -336,28 +381,19 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        <Field label={`Vous êtes déjà ${dejaPresents} (toi inclus)`}>
+        <Field
+          label={`Je recherche ${personnesRecherchees} personne${personnesRecherchees > 1 ? 's' : ''}`}
+        >
           <Stepper
-            value={dejaPresents}
-            onChange={setDejaPresents}
+            value={personnesRecherchees}
+            onChange={setPersonnesRecherchees}
             min={1}
             max={PLACES_MAX - 1}
           />
         </Field>
-
-        <Field
-          label={`Je recherche ${autresPersonnes} personne${autresPersonnes > 1 ? 's' : ''} de plus`}
-        >
-          <Stepper
-            value={autresPersonnes}
-            onChange={setAutresPersonnes}
-            min={1}
-            max={autresPersonnesMax}
-          />
-        </Field>
         <MutedText style={styles.placesHint}>
-          {dejaPresents} + {autresPersonnes} = {dejaPresents + autresPersonnes} personnes
-          dans la voiture (chauffeur non compris).
+          Vous serez {personnesRecherchees + 1} dans la voiture, chauffeur non
+          compris. Si quelqu'un vient déjà avec toi, compte-le dans ce nombre.
         </MutedText>
 
         <Field label="Cotisation par personne">
@@ -419,18 +455,23 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     marginTop: 2,
   },
-  locationButton: {
+  posRow: {
     minHeight: 36,
-    borderWidth: 1,
-    borderColor: colors.divider,
-    backgroundColor: colors.surface,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
   },
-  locationButtonText: {
+  posText: {
+    fontSize: 13,
+  },
+  posOk: {
     fontFamily: fonts.headingSemiBold,
     color: colors.text,
     fontSize: 13,
+  },
+  posRetry: {
+    gap: 6,
+    paddingBottom: 4,
   },
   refineButton: {
     minHeight: 36,

@@ -12,6 +12,7 @@ import { TrajetsService } from '../trajets/trajets.service';
 describe('DemandesService', () => {
   let service: DemandesService;
   let universiteFindUniqueMock: jest.Mock;
+  let universiteFindManyMock: jest.Mock;
   let communeFindUniqueMock: jest.Mock;
   let poiFindUniqueMock: jest.Mock;
   let demandeCreateMock: jest.Mock;
@@ -42,6 +43,7 @@ describe('DemandesService', () => {
 
   beforeEach(async () => {
     universiteFindUniqueMock = jest.fn();
+    universiteFindManyMock = jest.fn();
     communeFindUniqueMock = jest.fn();
     poiFindUniqueMock = jest.fn();
     demandeCreateMock = jest.fn();
@@ -77,7 +79,10 @@ describe('DemandesService', () => {
         {
           provide: PrismaService,
           useValue: {
-            universite: { findUnique: universiteFindUniqueMock },
+            universite: {
+              findUnique: universiteFindUniqueMock,
+              findMany: universiteFindManyMock,
+            },
             commune: { findUnique: communeFindUniqueMock },
             pointInteret: {
               findUnique: poiFindUniqueMock,
@@ -304,23 +309,50 @@ describe('DemandesService', () => {
 
   describe('listerDemandes', () => {
     it('filters by universiteId, communeId and statut "ouverte"', async () => {
+      universiteFindUniqueMock.mockResolvedValueOnce({
+        id: 'univ-1',
+        commune: 'Cocody',
+      });
+      universiteFindManyMock.mockResolvedValueOnce([{ id: 'univ-1' }]);
       demandeFindManyMock.mockResolvedValueOnce([]);
 
       await service.listerDemandes('univ-1', 'commune-1', 'user-1');
 
       expect(demandeFindManyMock).toHaveBeenCalledWith({
         where: {
-          universiteId: 'univ-1',
+          universiteId: { in: ['univ-1'] },
           communeId: 'commune-1',
           statut: 'ouverte',
         },
         include: {
           createur: {
-            select: { id: true, nom: true, prenom: true, note: true },
+            select: { id: true, nom: true, prenom: true, note: true, nombreNotations: true },
           },
         },
         orderBy: { heure: 'asc' },
       });
+    });
+
+    it('also includes demandes towards other universites in the same commune (proximite)', async () => {
+      universiteFindUniqueMock.mockResolvedValueOnce({
+        id: 'univ-1',
+        commune: 'Cocody',
+      });
+      universiteFindManyMock.mockResolvedValueOnce([
+        { id: 'univ-1' },
+        { id: 'univ-2' },
+      ]);
+      demandeFindManyMock.mockResolvedValueOnce([]);
+
+      await service.listerDemandes('univ-1', 'commune-1', 'user-1');
+
+      expect(demandeFindManyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            universiteId: { in: ['univ-1', 'univ-2'] },
+          }),
+        }),
+      );
     });
 
     it('computes placesRestantes from the confirmed participation count', async () => {
@@ -646,25 +678,53 @@ describe('DemandesService', () => {
 
   describe('listerDemandesDisponibles', () => {
     it('filters by universiteId, communeId, statut "quota_atteint" and poiId not null', async () => {
+      universiteFindUniqueMock.mockResolvedValueOnce({
+        id: 'univ-1',
+        commune: 'Cocody',
+      });
+      universiteFindManyMock.mockResolvedValueOnce([{ id: 'univ-1' }]);
       demandeFindManyMock.mockResolvedValueOnce([]);
 
       await service.listerDemandesDisponibles('univ-1', 'commune-1');
 
       expect(demandeFindManyMock).toHaveBeenCalledWith({
         where: {
-          universiteId: 'univ-1',
+          universiteId: { in: ['univ-1'] },
           communeId: 'commune-1',
           statut: 'quota_atteint',
           poiId: { not: null },
         },
         include: {
           createur: {
-            select: { id: true, nom: true, prenom: true, note: true },
+            select: { id: true, nom: true, prenom: true, note: true, nombreNotations: true },
           },
           poi: true,
         },
         orderBy: { heure: 'asc' },
       });
+    });
+
+    it('also includes demandes towards other universites in the same commune (proximite)', async () => {
+      universiteFindUniqueMock.mockResolvedValueOnce({
+        id: 'univ-1',
+        commune: 'Cocody',
+      });
+      universiteFindManyMock.mockResolvedValueOnce([
+        { id: 'univ-1' },
+        { id: 'univ-2' },
+        { id: 'univ-3' },
+      ]);
+      demandeFindManyMock.mockResolvedValueOnce([]);
+
+      await service.listerDemandesDisponibles('univ-1', 'commune-1');
+
+      expect(demandeFindManyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            universiteId: { in: ['univ-1', 'univ-2', 'univ-3'] },
+          }),
+        }),
+      );
     });
   });
 

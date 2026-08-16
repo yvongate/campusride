@@ -218,7 +218,7 @@ export default function PointDeRegroupementScreen({ navigation, route }: Props) 
               </MutedText>
               <MutedText style={styles.conducteurMeta}>
                 {demande.conducteur.note !== null
-                  ? `★ ${demande.conducteur.note.toFixed(1)}`
+                  ? `★ ${demande.conducteur.note.toFixed(1)} (${demande.conducteur.nombreNotations})`
                   : null}
                 {demande.conducteur.matriculeVehicule
                   ? ` · ${demande.conducteur.matriculeVehicule}`
