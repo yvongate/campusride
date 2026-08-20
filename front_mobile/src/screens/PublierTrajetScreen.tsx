@@ -21,12 +21,19 @@ import { Field, Input } from '../components/Field';
 import { PickerField } from '../components/PickerField';
 import { ScreenFooter } from '../components/ScreenFooter';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { Stepper } from '../components/Stepper';
+import { showError } from '../components/Toast';
+import {
+  bornesFenetreReservation,
+  premiereHeureValide,
+} from '../utils/fenetreReservation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PublierTrajet'>;
 
-// 4 passagers au total (chauffeur non compris) -- meme regle que pour une
-// demande, un conducteur ne choisit pas ce nombre.
-const PLACES_TRAJET = 4;
+// Plafond identique cote backend (common/limites.ts) -- le conducteur choisit
+// desormais librement dans cette limite, au lieu d'annoncer 4 places quelle
+// que soit la voiture.
+const PLACES_MAX = 4;
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -58,11 +65,13 @@ export default function PublierTrajetScreen({ navigation }: Props) {
   const [communeId, setCommuneId] = useState<string | null>(null);
   const [quartierId, setQuartierId] = useState<string | null>(null);
   const [pointDeRdvId, setPointDeRdvId] = useState<string | null>(null);
-  const [dateHeure, setDateHeure] = useState(() => new Date());
-  const [prixTotal, setPrixTotal] = useState('');
+  const [dateHeure, setDateHeure] = useState(premiereHeureValide);
+  const [placesProposees, setPlacesProposees] = useState(PLACES_MAX);
+  const [cotisation, setCotisation] = useState('');
   const [loadingReferentiel, setLoadingReferentiel] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fenetre = bornesFenetreReservation();
 
   const loadReferentiel = useCallback(async () => {
     setLoadingReferentiel(true);
@@ -107,9 +116,9 @@ export default function PublierTrajetScreen({ navigation }: Props) {
       setError('Choisis une université et un point de rendez-vous.');
       return;
     }
-    const prixNum = parseFloat(prixTotal);
-    if (!Number.isFinite(prixNum) || prixNum < 1) {
-      setError('Prix total invalide.');
+    const cotisationNum = parseFloat(cotisation);
+    if (!Number.isFinite(cotisationNum) || cotisationNum < 1) {
+      setError('Indique une cotisation valide.');
       return;
     }
 
@@ -119,12 +128,12 @@ export default function PublierTrajetScreen({ navigation }: Props) {
         universiteId,
         pointDeRdvId,
         heure: dateHeure.toISOString(),
-        places: PLACES_TRAJET,
-        prixTotal: prixNum,
+        places: placesProposees,
+        cotisation: cotisationNum,
       });
       navigation.replace('MesTrajetsConducteur');
     } catch (e) {
-      setError(extractErrorMessage(e, 'La publication du trajet a échoué.'));
+      showError(extractErrorMessage(e, 'La publication du trajet a échoué.'));
     } finally {
       setSubmitting(false);
     }
@@ -142,10 +151,13 @@ export default function PublierTrajetScreen({ navigation }: Props) {
   const communeLabel = communes.find((c) => c.id === communeId)?.nom ?? null;
   const quartierLabel = quartiers.find((q) => q.id === quartierId)?.nom ?? null;
   const pointLabel = pointsInteret.find((p) => p.id === pointDeRdvId)?.nom ?? null;
-  const prixNum = parseFloat(prixTotal);
-  const prixParPersonne =
-    Number.isFinite(prixNum) && prixNum > 0
-      ? Math.ceil(prixNum / PLACES_TRAJET)
+  const cotisationNum = parseFloat(cotisation);
+  // Ce que le conducteur encaissera si toutes les places se remplissent --
+  // simple projection indicative, le montant du par chaque passager reste la
+  // cotisation saisie quoi qu'il arrive.
+  const totalSiComplet =
+    Number.isFinite(cotisationNum) && cotisationNum > 0
+      ? cotisationNum * placesProposees
       : null;
 
   return (
@@ -192,6 +204,8 @@ export default function PublierTrajetScreen({ navigation }: Props) {
               value={dateHeure}
               onChange={setDateHeure}
               formatLabel={formatDateLabel}
+              minimumDate={fenetre.minimumDate}
+              maximumDate={fenetre.maximumDate}
             />
           </View>
           <View style={styles.rowField}>
@@ -205,20 +219,32 @@ export default function PublierTrajetScreen({ navigation }: Props) {
           </View>
         </View>
 
-        <Field label="Prix total du trajet">
+        <Field
+          label={`Je propose ${placesProposees} place${placesProposees > 1 ? 's' : ''}`}
+        >
+          <Stepper
+            value={placesProposees}
+            onChange={setPlacesProposees}
+            min={1}
+            max={PLACES_MAX}
+          />
+        </Field>
+
+        <Field label="Cotisation par personne">
           <Input
-            placeholder="3 500 FCFA"
-            value={prixTotal}
-            onChangeText={setPrixTotal}
+            placeholder="875 FCFA"
+            value={cotisation}
+            onChangeText={setCotisation}
             keyboardType="number-pad"
           />
         </Field>
 
-        {prixParPersonne !== null ? (
+        {totalSiComplet !== null ? (
           <View style={styles.callout}>
             <Text style={styles.calloutText}>
-              ≈ {prixParPersonne} FCFA par personne, calculé automatiquement
-              pour {PLACES_TRAJET} passagers.
+              Chaque passager paie {cotisationNum} FCFA, quel que soit le
+              nombre de réservations. Tu encaisseras {totalSiComplet} FCFA si
+              tes {placesProposees} place{placesProposees > 1 ? 's se remplissent' : ' se remplit'}.
             </Text>
           </View>
         ) : null}

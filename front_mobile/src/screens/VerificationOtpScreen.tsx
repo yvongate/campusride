@@ -10,6 +10,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import { AxiosError } from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -17,6 +18,7 @@ import type { RootStackParamList } from '../navigation/types';
 import { colors, fonts } from '../theme';
 import { requestOtp, verifyOtp } from '../api/client';
 import { OTP_LENGTH, isCompleteCode, joinDigits, splitDigits } from '../utils/otp';
+import { enregistrerPourNotifications } from '../utils/push';
 import { Button } from '../components/Button';
 import { KEYBOARD_ACCESSORY_ID, KeyboardDoneBar } from '../components/KeyboardDoneBar';
 import { H3, MutedText } from '../components/Typography';
@@ -25,6 +27,15 @@ type Props = NativeStackScreenProps<RootStackParamList, 'VerificationOtp'>;
 
 const CODE_LENGTH = OTP_LENGTH;
 const RESEND_COOLDOWN_SECONDS = 60;
+
+function extractErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof AxiosError) {
+    const message = (error.response?.data as { message?: string } | undefined)
+      ?.message;
+    if (typeof message === 'string') return message;
+  }
+  return fallback;
+}
 
 export default function VerificationOtpScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -71,12 +82,36 @@ export default function VerificationOtpScreen({ route, navigation }: Props) {
     try {
       const result = await verifyOtp(phone, code);
       await SecureStore.setItemAsync('accessToken', result.accessToken);
+      // Apres le token : l'enregistrement de l'appareil est une requete
+      // authentifiee. Volontairement non attendu — l'entree dans l'app ne
+      // doit pas dependre de la disponibilite des notifications.
+      void enregistrerPourNotifications();
+      // Un compte suspendu se connecte bel et bien (le backend lui delivre un
+      // token) mais n'atterrit pas dans l'app : il va droit a l'ecran de
+      // recours, seul endroit qui lui reste accessible.
+      if (
+        result.user.suspenduJusqua &&
+        new Date(result.user.suspenduJusqua) > new Date()
+      ) {
+        navigation.reset({
+          index: 0,
+          routes: [
+            {
+              name: 'CompteSuspendu',
+              params: { suspenduJusqua: result.user.suspenduJusqua },
+            },
+          ],
+        });
+        return;
+      }
       navigation.reset({
         index: 0,
         routes: [{ name: result.user.nom ? 'MainTabs' : 'CompleterProfil' }],
       });
-    } catch {
-      setError('Code incorrect ou expiré. Réessaie.');
+    } catch (e) {
+      // Un compte DESACTIVE par un admin est toujours refuse ici : sans ce
+      // message, il lisait "Code incorrect" et reessayait indefiniment.
+      setError(extractErrorMessage(e, 'Code incorrect ou expiré. Réessaie.'));
       clearCode();
     } finally {
       setVerifying(false);

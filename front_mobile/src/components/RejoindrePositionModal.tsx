@@ -25,14 +25,12 @@ export function RejoindrePositionModal({
   visible,
   communeId,
   submitting,
-  error,
   onCancel,
   onConfirm,
 }: {
   visible: boolean;
   communeId: string;
   submitting: boolean;
-  error: string | null;
   onCancel: () => void;
   onConfirm: (lat: number, lng: number) => void;
 }) {
@@ -177,8 +175,6 @@ export function RejoindrePositionModal({
           </>
         )}
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-
         <View style={styles.spacer} />
 
         <Button
@@ -235,11 +231,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.headingSemiBold,
     color: colors.accent,
     fontSize: 12.5,
-  },
-  error: {
-    color: colors.accent,
-    fontSize: 13,
-    marginTop: 8,
   },
   spacer: {
     flex: 1,

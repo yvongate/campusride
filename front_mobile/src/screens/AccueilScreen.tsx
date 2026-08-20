@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   RefreshControl,
@@ -27,6 +28,7 @@ import {
   listPointsInteret,
   listTrajets,
   listUniversites,
+  quitterDemande,
   rejoindreDemande,
   updateUniversite,
   Commune,
@@ -40,14 +42,20 @@ import {
 import { formatPlacesRestantes } from '../utils/places';
 import { getDisplayName } from '../utils/profile';
 import { nearestCommune } from '../utils/nearestCommune';
+import { getTrajetsIgnores, ignorerTrajet } from '../utils/notationsIgnorees';
+import { gererSuspension } from '../utils/suspension';
+import {
+  getDemandesAnnuleesVues,
+  marquerDemandeAnnuleeVue,
+} from '../utils/demandesAnnuleesVues';
 import { useRefreshOnForeground } from '../hooks/useRefreshOnForeground';
-import { Avatar } from '../components/Avatar';
 import { BurgerButton } from '../components/BurgerButton';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { ErrorState } from '../components/ErrorState';
 import { LocationBanner } from '../components/LocationBanner';
-import { ArrowRightIcon, ChevronDownIcon, PencilIcon, PinIcon, PlusIcon, StarIcon } from '../components/icons';
+import { showError } from '../components/Toast';
+import { ArrowRightIcon, ChevronDownIcon, CloseIcon, PencilIcon, PinIcon, PlusIcon, StarIcon } from '../components/icons';
 import { RejoindrePositionModal } from '../components/RejoindrePositionModal';
 import { SearchableListModal } from '../components/SearchableListModal';
 import { SegmentedControl } from '../components/SegmentedControl';
@@ -150,8 +158,6 @@ export default function AccueilScreen({ navigation }: Props) {
   const [loadingDemandes, setLoadingDemandes] = useState(false);
   const [feedError, setFeedError] = useState<string | null>(null);
   const [presDeMoi, setPresDeMoi] = useState(false);
-  const [locationError, setLocationError] = useState<string | null>(null);
-  const [rejoindreError, setRejoindreError] = useState<string | null>(null);
   const [rejoindrePendingId, setRejoindrePendingId] = useState<string | null>(
     null,
   );
@@ -160,7 +166,8 @@ export default function AccueilScreen({ navigation }: Props) {
   );
   const [mesDemandes, setMesDemandes] = useState<MesDemandesDemande[]>([]);
   const [annulerPendingId, setAnnulerPendingId] = useState<string | null>(null);
-  const [annulerError, setAnnulerError] = useState<string | null>(null);
+  const [monId, setMonId] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     getProfile()
@@ -170,6 +177,8 @@ export default function AccueilScreen({ navigation }: Props) {
         );
         setUniversiteId(profile.universiteId);
         setUniversiteNom(profile.universite?.nom ?? null);
+        setMonId(profile.id);
+        setRole(profile.role);
       })
       .catch(() => undefined)
       .finally(() => setProfileLoaded(true));
@@ -268,6 +277,16 @@ export default function AccueilScreen({ navigation }: Props) {
 
   useRefreshOnForeground(refreshFeed);
 
+  // Sans ca, revenir sur Accueil apres avoir rejoint une demande (ecran
+  // PointDeRegroupement) laissait la carte du feed principal figee sur son
+  // etat d'avant (dejaRejoint encore a false) -- le bouton "Rejoindre"
+  // restait actif et une 2e tentative de rejoindre la meme demande semblait
+  // possible alors qu'elle etait deja rejointe.
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', refreshFeed);
+    return unsubscribe;
+  }, [navigation, refreshFeed]);
+
   // Fusion visuelle (pas de fusion des modeles) : "trajets" (deja confirmes,
   // chauffeur+vehicule+prix garantis) et "demandes" (en attente d'un
   // chauffeur) sont affiches dans un seul flux trie par heure de depart,
@@ -307,13 +326,33 @@ export default function AccueilScreen({ navigation }: Props) {
   // creees/rejointes restent visibles meme si je change de filtre ensuite.
   const loadMesDemandes = useCallback(() => {
     listerMesDemandes()
-      .then((data) =>
+      .then(async (data) => {
+        // Pas de notification push reelle : quand le createur annule une
+        // demande, un participant ne l'apprenait jusqu'ici qu'en la voyant
+        // disparaitre silencieusement de cette liste. Un toast (affiche une
+        // seule fois par demande, voir demandesAnnuleesVues) comble ce trou.
+        const vues = await getDemandesAnnuleesVues();
+        // monId pas encore connu (getProfile pas encore resolu) : on attend
+        // plutot que de risquer de notifier a tort le createur de sa propre
+        // annulation (createurId !== null serait toujours vrai).
+        const nouvellesAnnulees = monId
+          ? data.filter(
+              (d) => d.statut === 'annulee' && d.createurId !== monId && !vues.has(d.id),
+            )
+          : [];
+        for (const d of nouvellesAnnulees) {
+          showError(
+            `Le créateur a annulé la demande ${d.commune.nom} → ${d.universite.nom}.`,
+          );
+          void marquerDemandeAnnuleeVue(d.id);
+        }
+
         setMesDemandes(
           data.filter((d) => d.statut === 'ouverte' || d.statut === 'quota_atteint'),
-        ),
-      )
+        );
+      })
       .catch(() => undefined);
-  }, []);
+  }, [monId]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', loadMesDemandes);
@@ -326,8 +365,12 @@ export default function AccueilScreen({ navigation }: Props) {
     NotationEnAttente[]
   >([]);
   const loadNotationsEnAttente = useCallback(() => {
-    listerNotationsEnAttente()
-      .then(setNotationsEnAttente)
+    Promise.all([listerNotationsEnAttente(), getTrajetsIgnores()])
+      .then(([notations, ignores]) =>
+        setNotationsEnAttente(
+          notations.filter((n) => !ignores.has(n.trajetId)),
+        ),
+      )
       .catch(() => undefined);
   }, []);
 
@@ -336,36 +379,81 @@ export default function AccueilScreen({ navigation }: Props) {
     return unsubscribe;
   }, [navigation, loadNotationsEnAttente]);
 
+  // Noter n'est jamais obligatoire -- ce rappel doit pouvoir etre ignore
+  // durablement (sinon il revient a chaque passage sur Accueil tant que le
+  // trajet n'est pas note, ce qui donne l'impression d'un blocage).
+  function handleIgnorerNotation(trajetId: string) {
+    setNotationsEnAttente((prev) => prev.filter((n) => n.trajetId !== trajetId));
+    void ignorerTrajet(trajetId);
+  }
+
   async function handleAnnulerDemande(demandeId: string) {
     setAnnulerPendingId(demandeId);
-    setAnnulerError(null);
     try {
-      await annulerDemande(demandeId);
+      const resultat = await annulerDemande(demandeId);
+      if (gererSuspension(resultat.suspenduJusqua)) {
+        return;
+      }
       loadMesDemandes();
       void loadDemandes();
     } catch (e) {
-      setAnnulerError(extractErrorMessage(e, "L'annulation a échoué."));
+      showError(extractErrorMessage(e, "L'annulation a échoué."));
+    } finally {
+      setAnnulerPendingId(null);
+    }
+  }
+
+  // Annuler une demande que d'autres ont rejointe compte comme une annulation
+  // tardive (2e = suspension). L'avertissement evite que le createur decouvre
+  // la sanction apres coup -- meme principe que l'annulation tardive d'une
+  // reservation.
+  function handleAnnulerDemandePress(demandeId: string, aDesParticipants: boolean) {
+    if (!aDesParticipants) {
+      void handleAnnulerDemande(demandeId);
+      return;
+    }
+    Alert.alert(
+      'Des étudiants comptent sur toi',
+      "D'autres ont déjà rejoint cette demande. L'annuler la supprime pour eux et compte comme une annulation tardive : à la 2e, ton compte est suspendu trois semaines.",
+      [
+        { text: 'Retour', style: 'cancel' },
+        {
+          text: 'Annuler quand même',
+          style: 'destructive',
+          onPress: () => void handleAnnulerDemande(demandeId),
+        },
+      ],
+    );
+  }
+
+  async function handleQuitterDemande(demandeId: string) {
+    setAnnulerPendingId(demandeId);
+    try {
+      await quitterDemande(demandeId);
+      loadMesDemandes();
+      void loadDemandes();
+    } catch (e) {
+      showError(extractErrorMessage(e, "Tu n'as pas pu quitter cette demande."));
     } finally {
       setAnnulerPendingId(null);
     }
   }
 
   function handleRejoindre(demandeId: string) {
-    setRejoindreError(null);
     setJoinModalDemandeId(demandeId);
   }
 
   async function handleConfirmRejoindre(lat: number, lng: number) {
     const demandeId = joinModalDemandeId;
     if (!demandeId) return;
-    setRejoindreError(null);
     setRejoindrePendingId(demandeId);
     try {
       await rejoindreDemande(demandeId, lat, lng);
       setJoinModalDemandeId(null);
       navigation.navigate('PointDeRegroupement', { demandeId });
     } catch (e) {
-      setRejoindreError(extractErrorMessage(e, "La demande n'a pas pu être rejointe."));
+      setJoinModalDemandeId(null);
+      showError(extractErrorMessage(e, "La demande n'a pas pu être rejointe."));
     } finally {
       setRejoindrePendingId(null);
     }
@@ -374,18 +462,16 @@ export default function AccueilScreen({ navigation }: Props) {
   async function handlePresDeMoiChange(value: string) {
     if (value === 'tous') {
       setPresDeMoi(false);
-      setLocationError(null);
       void loadTrajets();
       return;
     }
 
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
-      setLocationError('Autorisation de localisation refusée.');
+      showError('Autorisation de localisation refusée.');
       return;
     }
 
-    setLocationError(null);
     setPresDeMoi(true);
     const position = await Location.getCurrentPositionAsync({});
     void loadTrajets(position.coords.latitude, position.coords.longitude);
@@ -425,26 +511,34 @@ export default function AccueilScreen({ navigation }: Props) {
       </View>
 
       {notationsEnAttente.length > 0 ? (
-        <TouchableOpacity
-          style={styles.rappelBanner}
-          onPress={() => {
-            const [premier, ...reste] = notationsEnAttente;
-            setNotationsEnAttente(reste);
-            navigation.navigate('Notation', premier);
-          }}
-        >
-          <Text style={styles.rappelText}>
-            Tu as {notationsEnAttente.length} trajet
-            {notationsEnAttente.length > 1 ? 's' : ''} à noter
-          </Text>
-          <ArrowRightIcon color={colors.background} />
-        </TouchableOpacity>
+        <View style={styles.rappelBanner}>
+          <TouchableOpacity
+            style={styles.rappelTapZone}
+            onPress={() => {
+              const [premier, ...reste] = notationsEnAttente;
+              setNotationsEnAttente(reste);
+              navigation.navigate('Notation', premier);
+            }}
+          >
+            <Text style={styles.rappelText}>
+              Tu as {notationsEnAttente.length} trajet
+              {notationsEnAttente.length > 1 ? 's' : ''} à noter
+            </Text>
+            <ArrowRightIcon color={colors.background} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.rappelClose}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            onPress={() => handleIgnorerNotation(notationsEnAttente[0].trajetId)}
+          >
+            <CloseIcon size={13} color={colors.background} />
+          </TouchableOpacity>
+        </View>
       ) : null}
 
       {mesDemandes.length > 0 ? (
         <View style={styles.mesDemandesSection}>
           <H5>Mes demandes en cours</H5>
-          {annulerError ? <Text style={styles.error}>{annulerError}</Text> : null}
           {mesDemandes.map((item) => (
             <TouchableOpacity
               key={item.id}
@@ -467,14 +561,30 @@ export default function AccueilScreen({ navigation }: Props) {
                   />
                 </View>
                 <MutedText>
+                  {item.createurId === monId ? 'Créée par toi' : 'Tu as rejoint cette demande'}
+                  {' · '}
                   {formatPlacesRestantes(item.placesRecherchees, item.placesConfirmees)}
                 </MutedText>
-                <Button
-                  title="Annuler cette demande"
-                  variant="ghost"
-                  loading={annulerPendingId === item.id}
-                  onPress={() => void handleAnnulerDemande(item.id)}
-                />
+                {item.createurId === monId ? (
+                  <Button
+                    title="Annuler cette demande"
+                    variant="ghost"
+                    loading={annulerPendingId === item.id}
+                    onPress={() =>
+                      handleAnnulerDemandePress(
+                        item.id,
+                        item.placesConfirmees > 1,
+                      )
+                    }
+                  />
+                ) : (
+                  <Button
+                    title="Quitter cette demande"
+                    variant="ghost"
+                    loading={annulerPendingId === item.id}
+                    onPress={() => void handleQuitterDemande(item.id)}
+                  />
+                )}
               </Card>
             </TouchableOpacity>
           ))}
@@ -493,8 +603,6 @@ export default function AccueilScreen({ navigation }: Props) {
               onChange={(value) => void handlePresDeMoiChange(value)}
             />
           </View>
-          {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
-          {rejoindreError ? <Text style={styles.error}>{rejoindreError}</Text> : null}
 
           {(loadingTrajets || loadingDemandes) && feed.length === 0 ? (
             <ActivityIndicator color={colors.accent} style={styles.loader} />
@@ -575,64 +683,85 @@ export default function AccueilScreen({ navigation }: Props) {
                       </View>
                       <View style={styles.rowBetween}>
                         <MutedText>{item.trajet.places} places</MutedText>
-                        <Text style={styles.price}>{item.trajet.prixTotal} FCFA</Text>
+                        {/* Montant reellement du par le passager, identique a
+                            celui des cartes de demande -- avant, c'etait le
+                            prix TOTAL de la course qui s'affichait ici. */}
+                        <Text style={styles.price}>
+                          {item.trajet.cotisation} FCFA/pers.
+                        </Text>
                       </View>
-                      <Button
-                        title="Réserver"
-                        variant="secondary"
-                        block
-                        onPress={() =>
-                          navigation.navigate('TrajetDetail', { trajetId: item.trajet.id })
-                        }
-                      />
+                      {item.trajet.dejaReserve ? (
+                        <Button
+                          title="Trajet déjà réservé"
+                          variant="secondary"
+                          block
+                          disabled
+                        />
+                      ) : (
+                        <Button
+                          title="Réserver"
+                          variant="secondary"
+                          block
+                          onPress={() =>
+                            navigation.navigate('TrajetDetail', { trajetId: item.trajet.id })
+                          }
+                        />
+                      )}
                     </Card>
                   </TouchableOpacity>
                 ) : (
-                  (() => {
-                    const nom = getDisplayName(
-                      item.demande.createur.nom,
-                      item.demande.createur.prenom,
-                      'Étudiant',
-                    );
-                    return (
-                      <TouchableOpacity
-                        onPress={() =>
-                          navigation.navigate('PointDeRegroupement', {
-                            demandeId: item.demande.id,
-                          })
-                        }
-                      >
-                        <Card style={styles.card}>
-                          <View style={styles.rowBetween}>
-                            <Tag variant="outline" label="En attente de chauffeur" />
-                            <Text style={styles.time}>
-                              {new Date(item.demande.heure).toLocaleTimeString([], {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </Text>
-                          </View>
-                          <Avatar initial={nom.charAt(0)} size={24} background={colors.accent300} color={colors.text} />
-                          <MutedText>
-                            {item.demande.placesRestantes > 0
-                              ? `${item.demande.placesRestantes} place${item.demande.placesRestantes > 1 ? 's' : ''} restante${item.demande.placesRestantes > 1 ? 's' : ''}`
-                              : 'Groupe complet'}{' '}
-                            · {item.demande.cotisation} FCFA/pers.
-                          </MutedText>
-                          {item.demande.dejaRejoint ? (
-                            <Button title="Déjà rejoint" variant="secondary" block disabled />
-                          ) : (
-                            <Button
-                              title="Rejoindre"
-                              block
-                              loading={rejoindrePendingId === item.demande.id}
-                              onPress={() => void handleRejoindre(item.demande.id)}
-                            />
-                          )}
-                        </Card>
-                      </TouchableOpacity>
-                    );
-                  })()
+                  <TouchableOpacity
+                    onPress={() =>
+                      navigation.navigate('PointDeRegroupement', {
+                        demandeId: item.demande.id,
+                      })
+                    }
+                  >
+                    <Card style={styles.card}>
+                      <View style={styles.rowBetween}>
+                        <Tag variant="outline" label="En attente de chauffeur" />
+                        <Text style={styles.time}>
+                          {new Date(item.demande.heure).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </Text>
+                      </View>
+                      <View style={styles.titleRow}>
+                        <H5
+                          style={styles.titleText}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {communeLabel ?? 'Ta commune'}
+                        </H5>
+                        <ArrowRightIcon color={colors.text} />
+                        <H5
+                          style={styles.titleText}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {universiteNom ?? 'Ton université'}
+                        </H5>
+                      </View>
+                      <MutedText>
+                        {item.demande.placesRestantes > 0
+                          ? `${item.demande.placesRestantes} place${item.demande.placesRestantes > 1 ? 's' : ''} restante${item.demande.placesRestantes > 1 ? 's' : ''}`
+                          : 'Groupe complet'}{' '}
+                        · {item.demande.cotisation} FCFA/pers.
+                      </MutedText>
+                      {item.demande.dejaRejoint ? (
+                        <Button title="Déjà rejoint" variant="secondary" block disabled />
+                      ) : (
+                        <Button
+                          title="Rejoindre"
+                          block
+                          loading={rejoindrePendingId === item.demande.id}
+                          onPress={() => void handleRejoindre(item.demande.id)}
+                        />
+                      )}
+                    </Card>
+                  </TouchableOpacity>
                 )
               }
             />
@@ -641,6 +770,23 @@ export default function AccueilScreen({ navigation }: Props) {
       ) : !profileLoaded ? (
         <View style={styles.body}>
           <ActivityIndicator color={colors.accent} style={styles.loader} />
+        </View>
+      ) : role === 'chauffeur' ? (
+        // Un chauffeur (pas etudiant) n'a pas d'universite -- cet ecran est
+        // pense pour parcourir des trajets/demandes en tant que passager, ce
+        // qui ne le concerne pas. Ses actions (publier, accepter des
+        // demandes) sont sur Profil, jamais bloquees par une universite
+        // manquante ici.
+        <View style={styles.body}>
+          <MutedText style={styles.empty}>
+            Tu es inscrit comme chauffeur -- retrouve tes trajets et les
+            demandes à accepter depuis ton profil.
+          </MutedText>
+          <Button
+            title="Aller sur mon profil"
+            block
+            onPress={() => navigation.navigate('Profil')}
+          />
         </View>
       ) : !universiteId ? (
         <View style={styles.body}>
@@ -691,7 +837,6 @@ export default function AccueilScreen({ navigation }: Props) {
           visible
           communeId={communeId}
           submitting={rejoindrePendingId === joinModalDemandeId}
-          error={rejoindreError}
           onCancel={() => setJoinModalDemandeId(null)}
           onConfirm={(lat, lng) => void handleConfirmRejoindre(lat, lng)}
         />
@@ -806,17 +951,25 @@ const styles = StyleSheet.create({
   rappelBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginHorizontal: 20,
     marginTop: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     backgroundColor: colors.text,
   },
+  rappelTapZone: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   rappelText: {
     fontFamily: fonts.headingSemiBold,
     fontSize: 13,
     color: colors.background,
+  },
+  rappelClose: {
+    marginLeft: 14,
   },
   rowBetween: {
     flexDirection: 'row',

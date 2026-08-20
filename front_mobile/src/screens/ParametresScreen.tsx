@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
+import { desenregistrerAppareil } from '../utils/push';
 import Constants from 'expo-constants';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -33,6 +34,10 @@ export default function ParametresScreen({ navigation }: Props) {
   }, [navigation, rafraichirLocalisation]);
 
   async function handleLogout() {
+    // AVANT la suppression du token d'auth : la desinscription est une
+    // requete authentifiee. Sinon l'utilisateur suivant de ce telephone
+    // recevrait les notifications de ce compte.
+    await desenregistrerAppareil();
     await SecureStore.deleteItemAsync('accessToken');
     navigation.reset({ index: 0, routes: [{ name: 'Onboarding' }] });
   }

@@ -10,6 +10,7 @@ import { Button } from '../components/Button';
 import { RadioRow } from '../components/RadioRow';
 import { ScreenFooter } from '../components/ScreenFooter';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { showError } from '../components/Toast';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SignalerAbsence'>;
 
@@ -39,7 +40,7 @@ export default function SignalerAbsenceScreen({ navigation, route }: Props) {
       await signalerPassagerAbsent(trajetId, selectedId);
       navigation.goBack();
     } catch (e) {
-      setError(extractErrorMessage(e, 'Le signalement a échoué.'));
+      showError(extractErrorMessage(e, 'Le signalement a échoué.'));
     } finally {
       setSubmitting(false);
     }

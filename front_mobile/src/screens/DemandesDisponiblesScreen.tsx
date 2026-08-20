@@ -6,19 +6,17 @@ import type { RootStackParamList } from '../navigation/types';
 import { colors, fonts } from '../theme';
 import {
   accepterDemande,
+  getProfile,
   listCommunes,
-  listUniversites,
   listerDemandesDisponibles,
   Commune,
   DemandeDisponible,
-  Universite,
 } from '../api/client';
-import { getDisplayName } from '../utils/profile';
 import { useRefreshOnForeground } from '../hooks/useRefreshOnForeground';
-import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { ErrorState } from '../components/ErrorState';
+import { showError } from '../components/Toast';
 import { PickerField } from '../components/PickerField';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { MutedText } from '../components/Typography';
@@ -35,27 +33,33 @@ function extractErrorMessage(error: unknown, fallback: string): string {
 }
 
 export default function DemandesDisponiblesScreen({ navigation }: Props) {
-  const [universites, setUniversites] = useState<Universite[]>([]);
   const [communes, setCommunes] = useState<Commune[]>([]);
+  // Un conducteur "les deux" (etudiant + conducteur) reste scope a sa propre
+  // universite (celle de son profil, voir ChoisirUniversiteScreen) -- lui
+  // faire aussi choisir une universite ici n'aurait pas de sens. Un
+  // conducteur "chauffeur" (pas etudiant, voir Profile.role) n'en a pas :
+  // universiteId reste alors null et listerDemandesDisponibles ne filtre
+  // simplement pas dessus (toutes les universites de la commune).
   const [universiteId, setUniversiteId] = useState<string | null>(null);
+  const [universiteNom, setUniversiteNom] = useState<string | null>(null);
   const [communeId, setCommuneId] = useState<string | null>(null);
   const [demandes, setDemandes] = useState<DemandeDisponible[]>([]);
   const [loadingReferentiel, setLoadingReferentiel] = useState(true);
   const [referentielError, setReferentielError] = useState<string | null>(null);
   const [loadingDemandes, setLoadingDemandes] = useState(false);
   const [demandesError, setDemandesError] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const loadReferentiel = useCallback(async () => {
     setLoadingReferentiel(true);
     setReferentielError(null);
     try {
-      const [universitesData, communesData] = await Promise.all([
-        listUniversites(),
+      const [profile, communesData] = await Promise.all([
+        getProfile(),
         listCommunes(),
       ]);
-      setUniversites(universitesData);
+      setUniversiteId(profile.universiteId);
+      setUniversiteNom(profile.universite?.nom ?? null);
       setCommunes(communesData);
     } catch (e) {
       setReferentielError(
@@ -71,11 +75,13 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
   }, [loadReferentiel]);
 
   const loadDemandes = useCallback(async () => {
-    if (!universiteId || !communeId) return;
+    if (!communeId) return;
     setLoadingDemandes(true);
     setDemandesError(null);
     try {
-      setDemandes(await listerDemandesDisponibles(universiteId, communeId));
+      setDemandes(
+        await listerDemandesDisponibles(communeId, universiteId ?? undefined),
+      );
     } catch (e) {
       setDemandesError(
         extractErrorMessage(e, 'Impossible de charger les demandes.'),
@@ -91,14 +97,23 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
 
   useRefreshOnForeground(loadDemandes);
 
+  // Sans ca, revenir sur cet ecran apres avoir accepte une demande (ou
+  // apres un aller-retour vers un autre onglet) laissait la carte deja
+  // acceptee affichee -- un 2e tap dessus echouait alors avec un message
+  // deroutant plutot que de simplement avoir disparu de la liste.
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', loadDemandes);
+    return unsubscribe;
+  }, [navigation, loadDemandes]);
+
   async function handleAccepter(demandeId: string) {
-    setError(null);
     setPendingId(demandeId);
     try {
       await accepterDemande(demandeId);
       navigation.navigate('MesTrajetsConducteur');
     } catch (e) {
-      setError(extractErrorMessage(e, "L'acceptation a échoué."));
+      showError(extractErrorMessage(e, "L'acceptation a échoué."));
+      void loadDemandes();
     } finally {
       setPendingId(null);
     }
@@ -123,21 +138,17 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
     );
   }
 
-  const universiteLabel = universites.find((u) => u.id === universiteId)?.nom ?? null;
   const communeLabel = communes.find((c) => c.id === communeId)?.nom ?? null;
 
   return (
     <View style={styles.container}>
-      <ScreenHeader title="Demandes disponibles" onBack={() => navigation.goBack()} />
+      <ScreenHeader
+        title="Demandes disponibles"
+        subtitle={universiteNom ?? undefined}
+        onBack={() => navigation.goBack()}
+      />
 
       <View style={styles.filters}>
-        <PickerField
-          label="Université"
-          placeholder="Choisir une université"
-          selectedLabel={universiteLabel}
-          options={universites.map((u) => ({ id: u.id, label: u.nom }))}
-          onSelect={setUniversiteId}
-        />
         <PickerField
           label="Commune de départ"
           placeholder="Choisir une commune"
@@ -147,9 +158,8 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
         />
       </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {universiteId && communeId ? (
+      {communeId ? (
         loadingDemandes && demandes.length === 0 ? (
           <ActivityIndicator color={colors.accent} style={styles.loader} />
         ) : demandesError && demandes.length === 0 ? (
@@ -181,12 +191,11 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
               <MutedText style={styles.empty}>Aucune demande disponible.</MutedText>
             }
             renderItem={({ item }) => {
-              const nom = getDisplayName(item.createur.nom, item.createur.prenom, 'Étudiant');
               return (
                 <Card style={styles.card}>
                   <View style={styles.rowBetween}>
                     <Text style={styles.cardTitle}>
-                      {item.poi.nom} → université
+                      {item.poi.nom} → {item.universite.nom}
                     </Text>
                     <Text style={styles.time}>
                       {new Date(item.heure).toLocaleTimeString([], {
@@ -195,7 +204,6 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
                       })}
                     </Text>
                   </View>
-                  <Avatar initial={nom.charAt(0)} size={22} background={colors.accent300} color={colors.text} />
                   <MutedText style={styles.cardBody}>
                     {item.placesRecherchees} passagers · point suggéré :{' '}
                     {item.poi.nom} ·{' '}
@@ -217,7 +225,7 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
         )
       ) : (
         <MutedText style={styles.empty}>
-          Choisis ton université et ta commune pour voir les demandes.
+          Choisis ta commune de départ pour voir les demandes.
         </MutedText>
       )}
     </View>

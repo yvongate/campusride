@@ -8,6 +8,7 @@ import { colors, fonts } from '../theme';
 import { envoyerMessage, getProfile, getTrajetDetail, listerMessages, Message } from '../api/client';
 import { getDisplayName } from '../utils/profile';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { showError } from '../components/Toast';
 import { SendIcon } from '../components/icons';
 import { MutedText } from '../components/Typography';
 
@@ -96,13 +97,12 @@ export default function MessagerieScreen({ navigation, route }: Props) {
     const contenu = draft.trim();
     if (!contenu) return;
     setSending(true);
-    setError(null);
     try {
       await envoyerMessage(trajetId, contenu);
       setDraft('');
       await load();
     } catch (e) {
-      setError(extractErrorMessage(e, "L'envoi a échoué."));
+      showError(extractErrorMessage(e, "L'envoi a échoué."));
     } finally {
       setSending(false);
     }

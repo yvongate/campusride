@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AxiosError } from 'axios';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
@@ -9,12 +9,17 @@ import {
   DemandeDetail,
   getDemandeDetail,
   getProfile,
+  quitterDemande,
+  rejoindreDemande,
 } from '../api/client';
 import { formatPlacesRestantes } from '../utils/places';
+import { gererSuspension } from '../utils/suspension';
 import { getDisplayName } from '../utils/profile';
 import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
+import { showError } from '../components/Toast';
+import { RejoindrePositionModal } from '../components/RejoindrePositionModal';
 import { ScreenFooter } from '../components/ScreenFooter';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { H5, H6, MutedText } from '../components/Typography';
@@ -38,7 +43,8 @@ export default function PointDeRegroupementScreen({ navigation, route }: Props) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [annulerPending, setAnnulerPending] = useState(false);
-  const [annulerError, setAnnulerError] = useState<string | null>(null);
+  const [joinModalOpen, setJoinModalOpen] = useState(false);
+  const [rejoindrePending, setRejoindrePending] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -64,14 +70,68 @@ export default function PointDeRegroupementScreen({ navigation, route }: Props) 
 
   async function handleAnnuler() {
     setAnnulerPending(true);
-    setAnnulerError(null);
     try {
-      await annulerDemande(demandeId);
+      const resultat = await annulerDemande(demandeId);
+      if (gererSuspension(resultat.suspenduJusqua)) {
+        return;
+      }
       load();
     } catch (e) {
-      setAnnulerError(extractErrorMessage(e, "L'annulation a échoué."));
+      showError(extractErrorMessage(e, "L'annulation a échoué."));
     } finally {
       setAnnulerPending(false);
+    }
+  }
+
+  // Meme avertissement que sur l'Accueil : annuler une demande deja rejointe
+  // compte comme une annulation tardive (2e = suspension trois semaines).
+  function handleAnnulerPress(aDesParticipants: boolean) {
+    if (!aDesParticipants) {
+      void handleAnnuler();
+      return;
+    }
+    Alert.alert(
+      'Des étudiants comptent sur toi',
+      "D'autres ont déjà rejoint cette demande. L'annuler la supprime pour eux et compte comme une annulation tardive : à la 2e, ton compte est suspendu trois semaines.",
+      [
+        { text: 'Retour', style: 'cancel' },
+        {
+          text: 'Annuler quand même',
+          style: 'destructive',
+          onPress: () => void handleAnnuler(),
+        },
+      ],
+    );
+  }
+
+  async function handleQuitter() {
+    setAnnulerPending(true);
+    try {
+      await quitterDemande(demandeId);
+      load();
+    } catch (e) {
+      showError(extractErrorMessage(e, "Tu n'as pas pu quitter cette demande."));
+    } finally {
+      setAnnulerPending(false);
+    }
+  }
+
+  // Sans ce bouton, la seule facon de rejoindre etait de revenir en arriere
+  // jusqu'a la carte d'origine sur Accueil -- ce previsualisation (ouverte
+  // depuis n'importe quel tap sur une carte de demande) n'offrait aucune
+  // action, seulement l'annulation reservee au createur (retour utilisateur
+  // direct).
+  async function handleConfirmRejoindre(lat: number, lng: number) {
+    setRejoindrePending(true);
+    try {
+      await rejoindreDemande(demandeId, lat, lng);
+      setJoinModalOpen(false);
+      load();
+    } catch (e) {
+      setJoinModalOpen(false);
+      showError(extractErrorMessage(e, "La demande n'a pas pu être rejointe."));
+    } finally {
+      setRejoindrePending(false);
     }
   }
 
@@ -93,6 +153,14 @@ export default function PointDeRegroupementScreen({ navigation, route }: Props) 
 
   const peutAnnuler =
     demande.createur.id === monId &&
+    (demande.statut === 'ouverte' || demande.statut === 'quota_atteint');
+  // Le createur est deja participant des la creation (voir
+  // DemandesService.creerDemande), donc estParticipant exclut deja
+  // naturellement le createur ici -- pas besoin d'une verification separee.
+  const peutRejoindre = !demande.estParticipant && demande.statut === 'ouverte';
+  const peutQuitter =
+    demande.estParticipant &&
+    demande.createur.id !== monId &&
     (demande.statut === 'ouverte' || demande.statut === 'quota_atteint');
   const estExpiree = demande.statut === 'expiree';
   const estAnnulee = demande.statut === 'annulee';
@@ -133,7 +201,7 @@ export default function PointDeRegroupementScreen({ navigation, route }: Props) 
               {estFermee
                 ? 'FERMÉE'
                 : quotaAtteint
-                  ? 'QUOTA ATTEINT'
+                  ? 'NOMBRE ATTEINT'
                   : 'EN ATTENTE DE PARTICIPANTS'}
             </MutedText>
             <MutedText style={styles.progressLabel}>
@@ -144,33 +212,6 @@ export default function PointDeRegroupementScreen({ navigation, route }: Props) 
             <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
           </View>
         </View>
-
-        <Card style={styles.darkCard}>
-          <H6 style={styles.darkKicker}>Places (participants anonymes)</H6>
-          <View style={styles.avatarRow}>
-            {Array.from({ length: demande.placesRecherchees }).map((_, index) => (
-              <Avatar
-                key={index}
-                initial=""
-                size={34}
-                background={
-                  index < demande.placesConfirmees
-                    ? colors.accent
-                    : colors.neutral900
-                }
-                style={
-                  index >= demande.placesConfirmees
-                    ? styles.avatarPlaceholder
-                    : undefined
-                }
-              />
-            ))}
-          </View>
-          <MutedText style={styles.darkCaption}>
-            Chaque place s'allume dès qu'un participant rejoint la demande. Les
-            identités restent anonymes jusqu'à l'acceptation.
-          </MutedText>
-        </Card>
 
         {demande.poi ? (
           <Card style={styles.poiCard}>
@@ -240,18 +281,43 @@ export default function PointDeRegroupementScreen({ navigation, route }: Props) 
             }
           />
         </ScreenFooter>
+      ) : peutRejoindre ? (
+        <ScreenFooter>
+          <Button
+            title="Rejoindre cette demande"
+            block
+            onPress={() => setJoinModalOpen(true)}
+          />
+        </ScreenFooter>
       ) : peutAnnuler ? (
         <ScreenFooter>
-          {annulerError ? <Text style={styles.error}>{annulerError}</Text> : null}
           <Button
             title="Annuler cette demande"
             variant="ghost"
             block
             loading={annulerPending}
-            onPress={() => void handleAnnuler()}
+            onPress={() => handleAnnulerPress(demande.placesConfirmees > 1)}
+          />
+        </ScreenFooter>
+      ) : peutQuitter ? (
+        <ScreenFooter>
+          <Button
+            title="Quitter cette demande"
+            variant="ghost"
+            block
+            loading={annulerPending}
+            onPress={() => void handleQuitter()}
           />
         </ScreenFooter>
       ) : null}
+
+      <RejoindrePositionModal
+        visible={joinModalOpen}
+        communeId={demande.commune.id}
+        submitting={rejoindrePending}
+        onCancel={() => setJoinModalOpen(false)}
+        onConfirm={(lat, lng) => void handleConfirmRejoindre(lat, lng)}
+      />
     </View>
   );
 }
@@ -299,30 +365,6 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     backgroundColor: colors.accent,
-  },
-  darkCard: {
-    backgroundColor: colors.neutral900,
-    alignItems: 'center',
-  },
-  darkKicker: {
-    alignSelf: 'flex-start',
-    color: colors.background,
-    opacity: 0.7,
-  },
-  avatarRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginVertical: 10,
-  },
-  avatarPlaceholder: {
-    borderWidth: 1.5,
-    borderColor: colors.neutral500,
-  },
-  darkCaption: {
-    fontSize: 11,
-    textAlign: 'center',
-    color: colors.background,
-    opacity: 0.55,
   },
   poiCard: {
     padding: 0,

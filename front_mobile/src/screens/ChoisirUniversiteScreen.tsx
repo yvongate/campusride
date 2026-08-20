@@ -13,10 +13,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, fonts } from '../theme';
-import { listUniversites, updateUniversite, Universite } from '../api/client';
+import { declarerChauffeur, listUniversites, updateUniversite, Universite } from '../api/client';
 import { normalise } from '../components/PickerField';
 import { Button } from '../components/Button';
 import { ErrorState } from '../components/ErrorState';
+import { showError } from '../components/Toast';
 import { H3, MutedText } from '../components/Typography';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChoisirUniversite'>;
@@ -43,7 +44,7 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [chauffeurPending, setChauffeurPending] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -70,14 +71,29 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
 
   async function handleSelect(universite: Universite) {
     setPendingId(universite.id);
-    setSaveError(null);
     try {
       await updateUniversite(universite.id);
       navigation.navigate('Localisation');
     } catch (e) {
-      setSaveError(extractErrorMessage(e, "L'enregistrement a échoué."));
+      showError(extractErrorMessage(e, "L'enregistrement a échoué."));
     } finally {
       setPendingId(null);
+    }
+  }
+
+  // Un chauffeur qui n'est pas etudiant n'a pas d'universite de rattachement
+  // -- ce choix ne devrait plus jamais lui etre pose ensuite (voir
+  // AccueilScreen/DemandesDisponiblesScreen, qui traitent role === 'chauffeur'
+  // comme "pas d'universite, et ce n'est pas un manque").
+  async function handleChauffeur() {
+    setChauffeurPending(true);
+    try {
+      await declarerChauffeur();
+      navigation.navigate('Localisation');
+    } catch (e) {
+      showError(extractErrorMessage(e, "L'enregistrement a échoué."));
+    } finally {
+      setChauffeurPending(false);
     }
   }
 
@@ -93,6 +109,15 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
         Pour te proposer les trajets et demandes qui te concernent.
       </MutedText>
 
+      <Button
+        title="Je ne suis pas étudiant, je suis chauffeur"
+        variant="secondary"
+        block
+        loading={chauffeurPending}
+        disabled={pendingId !== null}
+        onPress={() => void handleChauffeur()}
+      />
+
       <TextInput
         style={styles.search}
         placeholder="Rechercher ton université…"
@@ -101,8 +126,6 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
         onChangeText={setQuery}
         autoCapitalize="none"
       />
-
-      {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
 
       {loading ? (
         <ActivityIndicator color={colors.accent} style={styles.loader} />
@@ -120,7 +143,7 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.item}
-              disabled={pendingId !== null}
+              disabled={pendingId !== null || chauffeurPending}
               onPress={() => void handleSelect(item)}
             >
               <View style={styles.itemText}>
@@ -141,7 +164,7 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
         title="Passer pour l'instant"
         variant="ghost"
         block
-        disabled={pendingId !== null}
+        disabled={pendingId !== null || chauffeurPending}
         onPress={() => navigation.navigate('Localisation')}
       />
     </View>
@@ -203,10 +226,5 @@ const styles = StyleSheet.create({
   empty: {
     textAlign: 'center',
     marginTop: 24,
-  },
-  error: {
-    color: colors.accent,
-    fontSize: 12.5,
-    marginBottom: 8,
   },
 });

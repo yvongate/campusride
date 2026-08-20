@@ -16,6 +16,7 @@ import { useRefreshOnForeground } from '../hooks/useRefreshOnForeground';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { ErrorState } from '../components/ErrorState';
+import { showError } from '../components/Toast';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { Tag } from '../components/Tag';
@@ -43,7 +44,6 @@ export default function MesTrajetsConducteurScreen({ navigation, route }: Props)
   }, [tabDemande]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -66,12 +66,11 @@ export default function MesTrajetsConducteurScreen({ navigation, route }: Props)
 
   async function runAction(key: string, action: () => Promise<void>) {
     setPendingKey(key);
-    setActionError(null);
     try {
       await action();
       load();
     } catch (e) {
-      setActionError(extractErrorMessage(e, "L'action a échoué."));
+      showError(extractErrorMessage(e, "L'action a échoué."));
     } finally {
       setPendingKey(null);
     }
@@ -116,7 +115,6 @@ export default function MesTrajetsConducteurScreen({ navigation, route }: Props)
       ) : (
         <>
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
           <FlatList
             data={filtered}

@@ -21,6 +21,8 @@ export type RootStackParamList = {
   MesInformations: undefined;
   Parametres: undefined;
   Aide: undefined;
+  Support: undefined;
+  CompteSuspendu: { suspenduJusqua: string | null };
   Avis: { userId: string; nom: string };
   Messagerie: { trajetId: string };
   Notation: {

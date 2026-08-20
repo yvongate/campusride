@@ -13,7 +13,12 @@ import {
 import * as SplashScreen from 'expo-splash-screen';
 import { getAccessToken, getProfile } from './src/api/client';
 import { navigationRef } from './src/navigation/navigationRef';
+import {
+  ecouterNotifications,
+  enregistrerPourNotifications,
+} from './src/utils/push';
 import { OfflineBanner } from './src/components/OfflineBanner';
+import { ToastHost } from './src/components/Toast';
 import type { RootStackParamList } from './src/navigation/types';
 import MainTabs from './src/navigation/MainTabs';
 import OnboardingScreen from './src/screens/OnboardingScreen';
@@ -26,6 +31,8 @@ import ChoisirUniversiteScreen from './src/screens/ChoisirUniversiteScreen';
 import MesInformationsScreen from './src/screens/MesInformationsScreen';
 import ParametresScreen from './src/screens/ParametresScreen';
 import AideScreen from './src/screens/AideScreen';
+import SupportScreen from './src/screens/SupportScreen';
+import CompteSuspenduScreen from './src/screens/CompteSuspenduScreen';
 import AvisScreen from './src/screens/AvisScreen';
 import TrajetDetailScreen from './src/screens/TrajetDetailScreen';
 import RencontreScreen from './src/screens/RencontreScreen';
@@ -42,7 +49,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 SplashScreen.preventAutoHideAsync();
 
-type InitialRoute = 'Onboarding' | 'MainTabs';
+type InitialRoute = 'Onboarding' | 'MainTabs' | 'CompteSuspendu';
 
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
@@ -51,6 +58,7 @@ export default function App() {
     Archivo_800ExtraBold,
   });
   const [initialRoute, setInitialRoute] = useState<InitialRoute | null>(null);
+  const [suspenduJusqua, setSuspenduJusqua] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -66,7 +74,22 @@ export default function App() {
         // bouton "Passer" ne persiste rien -- le mettre sur le chemin du
         // demarrage transformait un nom absent en barriere permanente
         // (l'accueil devenait inatteignable a chaque lancement).
-        await getProfile();
+        const profil = await getProfile();
+        // Token deja valide : on (re)declare l'appareil a chaque demarrage.
+        // Indispensable, le token Expo pouvant changer (reinstallation, mise
+        // a jour) -- l'enregistrement du login seul ne suffirait pas. Fait
+        // meme si le compte est suspendu : c'est par cette voie qu'arrivera
+        // la reponse du support.
+        void enregistrerPourNotifications();
+        // Seule exception a la regle "token valide => MainTabs" : un compte
+        // suspendu n'a acces qu'a l'ecran de recours. Ce n'est pas un ecran
+        // "skippable" (cf. AGENTS.md) mais un etat serveur, qui disparait de
+        // lui-meme des que l'admin leve la sanction ou que la date passe.
+        if (profil.suspenduJusqua && new Date(profil.suspenduJusqua) > new Date()) {
+          setSuspenduJusqua(profil.suspenduJusqua);
+          setInitialRoute('CompteSuspendu');
+          return;
+        }
         setInitialRoute('MainTabs');
       } catch {
         // Token expire/revoque, backend injoignable, ou erreur SecureStore :
@@ -83,6 +106,11 @@ export default function App() {
     }
   }, [fontsLoaded, fontError, initialRoute]);
 
+  // Ouvre l'ecran concerne quand l'utilisateur touche une notification.
+  // Monte une seule fois, hors du cycle de connexion : une notification peut
+  // arriver a tout moment, y compris au lancement depuis l'app fermee.
+  useEffect(() => ecouterNotifications(), []);
+
   if ((!fontsLoaded && !fontError) || !initialRoute) {
     return null;
   }
@@ -92,6 +120,7 @@ export default function App() {
       <NavigationContainer ref={navigationRef}>
         <StatusBar style="auto" />
         <OfflineBanner />
+        <ToastHost />
         <Stack.Navigator
           initialRouteName={initialRoute}
           screenOptions={{ headerShown: false }}
@@ -122,6 +151,15 @@ export default function App() {
           />
           <Stack.Screen name="Parametres" component={ParametresScreen} />
           <Stack.Screen name="Aide" component={AideScreen} />
+          <Stack.Screen name="Support" component={SupportScreen} />
+          <Stack.Screen
+            name="CompteSuspendu"
+            component={CompteSuspenduScreen}
+            initialParams={{ suspenduJusqua }}
+            // Pas de geste retour : cet ecran remplace la pile, un swipe
+            // arriere n'aurait de toute facon rien a afficher.
+            options={{ gestureEnabled: false }}
+          />
           <Stack.Screen name="Avis" component={AvisScreen} />
           <Stack.Screen name="TrajetDetail" component={TrajetDetailScreen} />
           <Stack.Screen name="Rencontre" component={RencontreScreen} />

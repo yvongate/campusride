@@ -17,12 +17,20 @@ export function DateTimeField({
   value,
   onChange,
   formatLabel,
+  minimumDate,
+  maximumDate,
 }: {
   label: string;
   mode: 'date' | 'time';
   value: Date;
   onChange: (date: Date) => void;
   formatLabel: (date: Date) => string;
+  // Reserve au mode "date" (reservation uniquement pour aujourd'hui ou
+  // demain, voir PublierTrajetScreen/CreerDemandeScreen) -- bloque le choix
+  // au niveau du picker natif plutot que de laisser l'utilisateur choisir
+  // une date invalide et decouvrir le rejet seulement a la soumission.
+  minimumDate?: Date;
+  maximumDate?: Date;
 }) {
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
@@ -39,6 +47,8 @@ export function DateTimeField({
         value,
         mode,
         display: 'spinner',
+        minimumDate,
+        maximumDate,
         onChange: handleAndroidChange,
       });
     } else {
@@ -69,6 +79,8 @@ export function DateTimeField({
               mode={mode}
               display="spinner"
               textColor={colors.text}
+              minimumDate={minimumDate}
+              maximumDate={maximumDate}
               onChange={handleIosChange}
             />
             <TouchableOpacity style={styles.modalClose} onPress={() => setOpen(false)}>

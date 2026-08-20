@@ -21,7 +21,8 @@
         "backgroundColor": "#e92934"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "ci.campusride.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -29,7 +30,13 @@
     "plugins": [
       "expo-secure-store",
       "expo-font",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-notifications",
+        {
+          "color": "#e92934"
+        }
+      ]
     ]
   }
 }

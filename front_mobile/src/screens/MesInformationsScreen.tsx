@@ -10,6 +10,7 @@ import { ErrorState } from '../components/ErrorState';
 import { Field, Input } from '../components/Field';
 import { PickerField } from '../components/PickerField';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { showError } from '../components/Toast';
 import { Tag } from '../components/Tag';
 import { MutedText } from '../components/Typography';
 
@@ -47,7 +48,6 @@ export default function MesInformationsScreen({ navigation }: Props) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [universiteSaved, setUniversiteSaved] = useState(false);
-  const [universiteError, setUniversiteError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -69,7 +69,6 @@ export default function MesInformationsScreen({ navigation }: Props) {
   }, [load]);
 
   async function handleChoisirUniversite(id: string) {
-    setUniversiteError(null);
     setUniversiteSaved(false);
     try {
       await updateUniversite(id);
@@ -85,7 +84,7 @@ export default function MesInformationsScreen({ navigation }: Props) {
       );
       setUniversiteSaved(true);
     } catch (e) {
-      setUniversiteError(extractErrorMessage(e, "L'enregistrement a échoué."));
+      showError(extractErrorMessage(e, "L'enregistrement a échoué."));
     }
   }
 
@@ -102,7 +101,7 @@ export default function MesInformationsScreen({ navigation }: Props) {
       setProfile((current) => (current ? { ...current, nom: nom.trim() } : current));
       setSaved(true);
     } catch (e) {
-      setSaveError(extractErrorMessage(e, "L'enregistrement a échoué."));
+      showError(extractErrorMessage(e, "L'enregistrement a échoué."));
     } finally {
       setSaving(false);
     }
@@ -170,7 +169,6 @@ export default function MesInformationsScreen({ navigation }: Props) {
             onSelect={(id) => void handleChoisirUniversite(id)}
             searchable
           />
-          {universiteError ? <Text style={styles.error}>{universiteError}</Text> : null}
           {universiteSaved ? (
             <Text style={styles.success}>Université mise à jour ✓</Text>
           ) : null}

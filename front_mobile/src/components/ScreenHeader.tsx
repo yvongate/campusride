@@ -31,7 +31,7 @@ export function ScreenHeader({
           <ChevronLeftIcon />
         </TouchableOpacity>
         <View style={styles.titleBlock}>
-          <H4 numberOfLines={1}>{title}</H4>
+          <H4 numberOfLines={2}>{title}</H4>
           {subtitle ? <MutedText style={styles.subtitle}>{subtitle}</MutedText> : null}
         </View>
         {right}

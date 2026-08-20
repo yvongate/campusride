@@ -11,6 +11,7 @@ import {
 } from '../api/client';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
+import { showError } from '../components/Toast';
 import { Field, Input } from '../components/Field';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { H5, MutedText } from '../components/Typography';
@@ -77,7 +78,7 @@ export default function NotationScreen({ navigation, route }: Props) {
       );
       setDeja((prev) => new Set(prev).add(cibleId));
     } catch (e) {
-      setError(extractErrorMessage(e, "L'envoi de la note a échoué."));
+      showError(extractErrorMessage(e, "L'envoi de la note a échoué."));
     } finally {
       setPendingId(null);
     }

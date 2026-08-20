@@ -105,6 +105,14 @@ export function ArrowRightIcon({ size = 14, color = '#201e1d' }: IconProps) {
   );
 }
 
+export function CloseIcon({ size = 14, color = '#201e1d' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M18 6L6 18M6 6l12 12" />
+    </Svg>
+  );
+}
+
 export function StarIcon({ size = 11, color = '#ae1800' }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>

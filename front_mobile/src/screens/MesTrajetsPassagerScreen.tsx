@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   RefreshControl,
   StyleSheet,
@@ -23,6 +24,7 @@ import {
   MesReservationsTrajet,
   signalerNoShow,
 } from '../api/client';
+import { gererSuspension } from '../utils/suspension';
 import { formatPlacesRestantes } from '../utils/places';
 import { getDisplayName } from '../utils/profile';
 import { useRefreshOnForeground } from '../hooks/useRefreshOnForeground';
@@ -30,6 +32,7 @@ import { BurgerButton } from '../components/BurgerButton';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { ErrorState } from '../components/ErrorState';
+import { showError } from '../components/Toast';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { Tag } from '../components/Tag';
 import { H4, MutedText } from '../components/Typography';
@@ -78,6 +81,13 @@ function demandeStatutTag(statut: string) {
 // l'Accueil).
 const DEMANDE_STATUTS_EN_COURS = ['ouverte', 'quota_atteint', 'acceptee'];
 
+// Meme fenetre que PASSENGER_CANCELLATION_DEADLINE_MS cote backend
+// (TrajetsService.annulerReservation) -- sert a avertir avant confirmation,
+// plus a cacher le bouton : annuler en dessous de ce delai n'est plus
+// bloque, mais annule le trajet pour tout le monde et compte comme une
+// annulation tardive (suspension du compte a partir de la 2e).
+const ANNULATION_TARDIVE_MS = 75 * 60 * 1000;
+
 export default function MesTrajetsPassagerScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const [trajets, setTrajets] = useState<MesReservationsTrajet[]>([]);
@@ -93,7 +103,6 @@ export default function MesTrajetsPassagerScreen({ navigation, route }: Props) {
   }, [tabDemande]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const loadAll = useCallback(() => {
@@ -123,25 +132,60 @@ export default function MesTrajetsPassagerScreen({ navigation, route }: Props) {
 
   async function handleAnnuler(trajetId: string) {
     setPendingId(trajetId);
-    setActionError(null);
     try {
-      await annulerReservation(trajetId);
+      const resultat = await annulerReservation(trajetId);
+
+      // Suspension declenchee par cette annulation : gererSuspension explique
+      // puis deconnecte volontairement. Surtout ne pas enchainer sur
+      // loadAll(), dont le 401 deconnecterait sans la moindre explication.
+      if (gererSuspension(resultat.suspenduJusqua)) {
+        return;
+      }
+
+      if (resultat.trajetAnnule) {
+        showError(
+          'Annulation tardive : le trajet a été annulé pour tout le monde.',
+        );
+      }
       loadAll();
     } catch (e) {
-      setActionError(extractErrorMessage(e, "L'annulation a échoué."));
+      showError(extractErrorMessage(e, "L'annulation a échoué."));
     } finally {
       setPendingId(null);
     }
   }
 
+  // Annuler reste toujours possible (bloquer ne fait qu'encourager le
+  // no-show silencieux), mais a moins de 1h15 du depart ca annule le trajet
+  // pour tout le monde -- un avertissement explicite avant confirmation
+  // evite la mauvaise surprise, la sanction (suspension a partir de la 2e
+  // annulation tardive) n'est sinon visible qu'apres coup.
+  function handleAnnulerPress(trajetId: string, tardive: boolean) {
+    if (!tardive) {
+      void handleAnnuler(trajetId);
+      return;
+    }
+    Alert.alert(
+      'Annulation tardive',
+      "À moins de 1h15 du départ, annuler ta réservation annule le trajet pour tout le monde. Ça compte comme une annulation tardive : à la 2e, ton compte est suspendu trois semaines.",
+      [
+        { text: 'Retour', style: 'cancel' },
+        {
+          text: 'Annuler quand même',
+          style: 'destructive',
+          onPress: () => void handleAnnuler(trajetId),
+        },
+      ],
+    );
+  }
+
   async function handleSignalerAbsence(trajetId: string) {
     setPendingId(trajetId);
-    setActionError(null);
     try {
       await signalerNoShow(trajetId);
       loadAll();
     } catch (e) {
-      setActionError(extractErrorMessage(e, 'Le signalement a échoué.'));
+      showError(extractErrorMessage(e, 'Le signalement a échoué.'));
     } finally {
       setPendingId(null);
     }
@@ -205,7 +249,6 @@ export default function MesTrajetsPassagerScreen({ navigation, route }: Props) {
       ) : (
         <>
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
           <FlatList
             data={feed}
@@ -224,8 +267,9 @@ export default function MesTrajetsPassagerScreen({ navigation, route }: Props) {
             ListFooterComponent={
               tab === 'encours' ? (
                 <MutedText style={styles.footNote}>
-                  Annulation possible jusqu'à 2h avant le départ. Passé ce délai,
-                  l'annulation est bloquée.
+                  Annulation possible jusqu'au départ. À moins de 1h15, ça
+                  annule le trajet pour tout le monde et compte comme une
+                  annulation tardive (suspension du compte à la 2e).
                 </MutedText>
               ) : null
             }
@@ -267,6 +311,8 @@ export default function MesTrajetsPassagerScreen({ navigation, route }: Props) {
                     'Conducteur',
                   );
                   const passe = new Date(t.heure).getTime() <= Date.now();
+                  const annulationTardive =
+                    new Date(t.heure).getTime() - Date.now() < ANNULATION_TARDIVE_MS;
                   const isPending = pendingId === t.id;
                   const tag = statutTag(t.statut);
 
@@ -327,7 +373,7 @@ export default function MesTrajetsPassagerScreen({ navigation, route }: Props) {
                             title="Annuler"
                             variant="ghost"
                             loading={isPending}
-                            onPress={() => void handleAnnuler(t.id)}
+                            onPress={() => handleAnnulerPress(t.id, annulationTardive)}
                           />
                         ) : null}
 

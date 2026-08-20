@@ -10,6 +10,7 @@ import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { ErrorState } from '../components/ErrorState';
+import { showError } from '../components/Toast';
 import { Tag } from '../components/Tag';
 import { ScreenFooter } from '../components/ScreenFooter';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -32,7 +33,6 @@ export default function TrajetDetailScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reserving, setReserving] = useState(false);
-  const [reserveError, setReserveError] = useState<string | null>(null);
   const [reserved, setReserved] = useState(false);
 
   const load = useCallback(() => {
@@ -52,13 +52,12 @@ export default function TrajetDetailScreen({ navigation, route }: Props) {
 
   async function handleReserver() {
     setReserving(true);
-    setReserveError(null);
     try {
       await reserverTrajet(trajetId);
       setReserved(true);
       load();
     } catch (e) {
-      setReserveError(extractErrorMessage(e, 'La réservation a échoué.'));
+      showError(extractErrorMessage(e, 'La réservation a échoué.'));
     } finally {
       setReserving(false);
     }
@@ -93,7 +92,7 @@ export default function TrajetDetailScreen({ navigation, route }: Props) {
   );
   const complet = trajet.placesDisponibles <= 0;
   const indisponible = complet || trajet.statut !== 'ouvert';
-  const passagers = trajet.places - trajet.placesDisponibles + 1;
+  const dejaReserve = trajet.dejaReserve || reserved;
 
   return (
     <View style={styles.container}>
@@ -140,42 +139,38 @@ export default function TrajetDetailScreen({ navigation, route }: Props) {
 
         <Card style={styles.priceCard}>
           <View style={styles.rowBetween}>
-            <Text style={styles.priceLine}>Prix total du trajet</Text>
-            <Text style={styles.priceLine}>{trajet.prixTotal} FCFA</Text>
-          </View>
-          <View style={styles.rowBetween}>
-            <Text style={styles.priceLine}>÷ {passagers} passagers</Text>
+            <Text style={styles.priceTotalLabel}>Cotisation par personne</Text>
+            <Text style={styles.priceTotal}>{trajet.cotisation} FCFA</Text>
           </View>
           <View style={styles.hr} />
-          <View style={styles.rowBetween}>
-            <Text style={styles.priceTotalLabel}>Prix par personne</Text>
-            <Text style={styles.priceTotal}>{trajet.prixParPersonnePreview} FCFA</Text>
-          </View>
+          <Text style={styles.priceLine}>
+            Ce montant est fixe : il ne changera pas selon le nombre de
+            passagers qui réservent.
+          </Text>
         </Card>
 
-        {reserveError ? <Text style={styles.error}>{reserveError}</Text> : null}
         {reserved ? (
           <Text style={styles.success}>Réservation confirmée !</Text>
         ) : null}
       </ScrollView>
 
-      {!reserved ? (
-        <ScreenFooter>
-          <Button
-            title={
-              complet
+      <ScreenFooter>
+        <Button
+          title={
+            dejaReserve
+              ? 'Trajet déjà réservé'
+              : complet
                 ? 'Trajet complet'
                 : trajet.statut !== 'ouvert'
                   ? 'Trajet indisponible'
-                  : `Réserver ma place — ${trajet.prixParPersonnePreview} FCFA`
-            }
-            block
-            loading={reserving}
-            disabled={indisponible}
-            onPress={() => void handleReserver()}
-          />
-        </ScreenFooter>
-      ) : null}
+                  : `Réserver ma place — ${trajet.cotisation} FCFA`
+          }
+          block
+          loading={reserving}
+          disabled={indisponible || dejaReserve}
+          onPress={() => void handleReserver()}
+        />
+      </ScreenFooter>
     </View>
   );
 }
@@ -250,11 +245,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.heading,
     fontSize: 24,
     color: colors.accent700,
-  },
-  error: {
-    color: colors.accent,
-    fontSize: 14,
-    textAlign: 'center',
   },
   success: {
     fontFamily: fonts.headingSemiBold,

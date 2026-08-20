@@ -16,6 +16,10 @@ import {
   Universite,
 } from '../api/client';
 import { nearestCommune } from '../utils/nearestCommune';
+import {
+  bornesFenetreReservation,
+  premiereHeureValide,
+} from '../utils/fenetreReservation';
 import { Button } from '../components/Button';
 import { DateTimeField } from '../components/DateTimeField';
 import { Field, Input } from '../components/Field';
@@ -27,6 +31,7 @@ import { ScreenFooter } from '../components/ScreenFooter';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { Stepper } from '../components/Stepper';
+import { showError } from '../components/Toast';
 import { MutedText } from '../components/Typography';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreerDemande'>;
@@ -56,10 +61,10 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
   const [universites, setUniversites] = useState<Universite[]>([]);
   const [communes, setCommunes] = useState<Commune[]>([]);
   // Tous les points de repere d'un coup (plus de cascade commune -> quartier
-  // -> POI) : recherche libre, la commune/quartier de la demande se deduit
-  // ensuite du POI choisi (voir handleSelectPoi) -- le backend ne valide de
-  // toute facon aucune coherence entre communeId et le POI (voir
-  // DemandesService.creerDemande, "quartier" y est un tag informatif).
+  // -> POI) : recherche libre, la commune de la demande se deduit ensuite du
+  // POI choisi (voir handleSelectPoi). Cette deduction est indispensable : le
+  // backend refuse desormais un POI qui n'appartient pas a la commune
+  // declaree (voir DemandesService.creerDemande).
   const [pointsInteret, setPointsInteret] = useState<PointInteret[]>([]);
   // Pre-rempli avec les filtres deja choisis sur l'ecran Accueil (memes
   // valeurs que listerDemandes y utilisera au retour) pour eviter qu'une
@@ -82,7 +87,8 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
   );
   const [locatingLoading, setLocatingLoading] = useState(false);
   const [positionError, setPositionError] = useState<string | null>(null);
-  const [dateHeure, setDateHeure] = useState(() => new Date());
+  const [dateHeure, setDateHeure] = useState(premiereHeureValide);
+  const fenetre = bornesFenetreReservation();
   // Un seul chiffre, exprime du point de vue de l'utilisateur : combien de
   // personnes il CHERCHE. Le backend, lui, attend placesRecherchees = total
   // de participants createur inclus (le quota tombe quand
@@ -199,7 +205,7 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
     }
     const cotisationNum = parseFloat(cotisation);
     if (!Number.isFinite(cotisationNum) || cotisationNum < 1) {
-      setError('Cotisation invalide.');
+      setError('Indique une cotisation valide.');
       return;
     }
 
@@ -223,7 +229,7 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
       });
       navigation.replace('PointDeRegroupement', { demandeId: demande.id });
     } catch (e) {
-      setError(extractErrorMessage(e, 'La création de la demande a échoué.'));
+      showError(extractErrorMessage(e, 'La création de la demande a échoué.'));
     } finally {
       setSubmitting(false);
     }
@@ -368,6 +374,8 @@ export default function CreerDemandeScreen({ navigation, route }: Props) {
               value={dateHeure}
               onChange={setDateHeure}
               formatLabel={formatDateLabel}
+              minimumDate={fenetre.minimumDate}
+              maximumDate={fenetre.maximumDate}
             />
           </View>
           <View style={styles.rowField}>

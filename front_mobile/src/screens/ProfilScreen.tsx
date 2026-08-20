@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import { desenregistrerAppareil } from '../utils/push';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { CompositeScreenProps } from '@react-navigation/native';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
@@ -59,6 +60,10 @@ export default function ProfilScreen({ navigation }: Props) {
   }, [navigation]);
 
   async function handleLogout() {
+    // AVANT la suppression du token d'auth : la desinscription est une
+    // requete authentifiee. Sinon l'utilisateur suivant de ce telephone
+    // recevrait les notifications de ce compte.
+    await desenregistrerAppareil();
     await SecureStore.deleteItemAsync('accessToken');
     navigation.getParent()?.reset({
       index: 0,

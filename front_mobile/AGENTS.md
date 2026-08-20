@@ -68,3 +68,22 @@ lancement, token valide + `nom` toujours `null` → retour sur cet écran, en bo
 Généralisation : **tout écran « skippable » placé sur le chemin de démarrage
 devient une barrière permanente**, puisque le fait de l'avoir sauté n'est pas
 mémorisé. Un tel écran appartient au flux de première connexion, pas au cold start.
+
+## §3 — Build APK : `.env` n'arrive JAMAIS jusqu'à EAS
+
+`front_mobile/.env` est gitignoré (§1). **EAS Build respecte `.gitignore` quand il
+téléverse le projet** : le fichier n'est donc pas présent côté serveur de build.
+Conséquence, si `EXPO_PUBLIC_API_URL` n'est défini que dans `.env` :
+
+- `baseURL` vaut `undefined` dans le bundle,
+- l'APK s'installe et s'ouvre normalement,
+- **mais tous les appels réseau échouent** — ce qui ressemble à « le backend est
+  cassé » alors que le backend va très bien.
+
+Les variables `EXPO_PUBLIC_*` nécessaires au build vivent donc dans le champ
+`env` de chaque profil de `eas.json` (pas de secret ici : c'est une URL publique).
+`.env` ne sert plus qu'au développement local avec Expo Go.
+
+Corollaire : le **seed n'a rien à voir avec le build**. Le seed remplit la base
+sur Render ; l'APK n'est qu'un client qui l'interroge au lancement. On build une
+fois, et on rejoue le seed quand on veut — y compris après le build.
