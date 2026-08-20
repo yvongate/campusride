@@ -13,6 +13,7 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CreateDemandeDto } from './dto/create-demande.dto';
 import { JoinDemandeDto } from './dto/join-demande.dto';
+import { ListDemandesDisponiblesQueryDto } from './dto/list-demandes-disponibles-query.dto';
 import { ListDemandesQueryDto } from './dto/list-demandes-query.dto';
 import { DemandesService } from './demandes.service';
 
@@ -69,10 +70,12 @@ export class DemandesController {
 
   @Get('disponibles')
   @UseGuards(JwtAuthGuard)
-  async listerDemandesDisponibles(@Query() query: ListDemandesQueryDto) {
+  async listerDemandesDisponibles(
+    @Query() query: ListDemandesDisponiblesQueryDto,
+  ) {
     return this.demandesService.listerDemandesDisponibles(
-      query.universiteId,
       query.communeId,
+      query.universiteId,
     );
   }
 
@@ -83,6 +86,15 @@ export class DemandesController {
     @Param('id') id: string,
   ) {
     return this.demandesService.annulerDemande(req.user.userId, id);
+  }
+
+  @Post(':id/quitter')
+  @UseGuards(JwtAuthGuard)
+  async quitterDemande(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    return this.demandesService.quitterDemande(req.user.userId, id);
   }
 
   @Post(':id/accepter')

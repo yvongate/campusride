@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -21,7 +22,11 @@ describe('UsersService', () => {
   let updateConducteurMock: jest.Mock;
   let transactionMock: jest.Mock;
 
+  // Effet de bord : les tests verifient le comportement metier, pas l'envoi.
+  const notificationsMock = { envoyer: jest.fn().mockResolvedValue(undefined) };
+
   beforeEach(async () => {
+    notificationsMock.envoyer.mockClear();
     findUniqueOrThrowMock = jest.fn();
     updateUtilisateurMock = jest.fn();
     findManyUtilisateurMock = jest.fn();
@@ -37,6 +42,7 @@ describe('UsersService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         UsersService,
+        { provide: NotificationsService, useValue: notificationsMock },
         {
           provide: PrismaService,
           useValue: {
@@ -142,6 +148,36 @@ describe('UsersService', () => {
       expect(updateUtilisateurMock).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: { nom: 'Kouassi', universiteId: 'univ-1' },
+      });
+    });
+
+    it('sets role to "chauffeur" when estChauffeur is true and the account is still "etudiant"', async () => {
+      findUniqueOrThrowMock.mockResolvedValueOnce({ role: 'etudiant' });
+      updateUtilisateurMock.mockResolvedValueOnce({
+        id: 'user-1',
+        role: 'chauffeur',
+      });
+
+      await service.updateProfil('user-1', { estChauffeur: true });
+
+      expect(updateUtilisateurMock).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { role: 'chauffeur' },
+      });
+    });
+
+    it('does not downgrade an already-"les deux" account when estChauffeur is true', async () => {
+      findUniqueOrThrowMock.mockResolvedValueOnce({ role: 'les deux' });
+      updateUtilisateurMock.mockResolvedValueOnce({
+        id: 'user-1',
+        role: 'les deux',
+      });
+
+      await service.updateProfil('user-1', { estChauffeur: true });
+
+      expect(updateUtilisateurMock).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: {},
       });
     });
   });
@@ -316,12 +352,13 @@ describe('UsersService', () => {
       expect(transactionMock).not.toHaveBeenCalled();
     });
 
-    it('sets the request to valide and promotes the user role to "les deux"', async () => {
+    it('sets the request to valide and promotes an "etudiant" user role to "les deux"', async () => {
       findUniqueConducteurMock.mockResolvedValueOnce({
         id: 'doc-1',
         userId: 'user-1',
         statut: 'en attente',
       });
+      findUniqueOrThrowMock.mockResolvedValueOnce({ role: 'etudiant' });
       updateConducteurMock.mockResolvedValueOnce({
         id: 'doc-1',
         statut: 'valide',
@@ -342,6 +379,50 @@ describe('UsersService', () => {
         data: { role: 'les deux' },
       });
       expect(result).toEqual({ id: 'doc-1', statut: 'valide' });
+    });
+
+    it('previent le conducteur que son compte est valide', async () => {
+      findUniqueConducteurMock.mockResolvedValueOnce({
+        id: 'doc-1',
+        userId: 'user-1',
+        statut: 'en attente',
+      });
+      findUniqueOrThrowMock.mockResolvedValueOnce({ role: 'etudiant' });
+      updateConducteurMock.mockResolvedValueOnce({ id: 'doc-1' });
+      updateUtilisateurMock.mockResolvedValueOnce({ id: 'user-1' });
+
+      await service.validerDemandeConducteur('doc-1');
+
+      expect(notificationsMock.envoyer).toHaveBeenCalledWith(
+        ['user-1'],
+        'Compte conducteur validé',
+        expect.any(String) as unknown as string,
+        { type: 'compte' },
+      );
+    });
+
+    it('keeps the role "chauffeur" as-is for a non-etudiant conducteur account', async () => {
+      findUniqueConducteurMock.mockResolvedValueOnce({
+        id: 'doc-1',
+        userId: 'user-1',
+        statut: 'en attente',
+      });
+      findUniqueOrThrowMock.mockResolvedValueOnce({ role: 'chauffeur' });
+      updateConducteurMock.mockResolvedValueOnce({
+        id: 'doc-1',
+        statut: 'valide',
+      });
+      updateUtilisateurMock.mockResolvedValueOnce({
+        id: 'user-1',
+        role: 'chauffeur',
+      });
+
+      await service.validerDemandeConducteur('doc-1');
+
+      expect(updateUtilisateurMock).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { role: 'chauffeur' },
+      });
     });
   });
 
@@ -466,7 +547,7 @@ describe('UsersService', () => {
 
       expect(updateUtilisateurMock).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { actif: true },
+        data: { actif: true, suspenduJusqua: null },
       });
       expect(result).toEqual({ id: 'user-1', actif: true });
     });

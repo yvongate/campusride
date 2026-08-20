@@ -46,8 +46,11 @@ export class TrajetsController {
 
   @Get()
   @UseGuards(JwtAuthGuard)
-  async listerTrajets(@Query() query: ListTrajetsQueryDto) {
-    return this.trajetsService.listerTrajets(query);
+  async listerTrajets(
+    @Req() req: AuthenticatedRequest,
+    @Query() query: ListTrajetsQueryDto,
+  ) {
+    return this.trajetsService.listerTrajets(query, req.user.userId);
   }
 
   // Doit rester declaree avant GET(':id') -- sinon NestJS route /trajets/mine
@@ -68,8 +71,11 @@ export class TrajetsController {
 
   @Get(':id')
   @UseGuards(JwtAuthGuard)
-  async getTrajetDetail(@Param('id') id: string) {
-    return this.trajetsService.getTrajetDetail(id);
+  async getTrajetDetail(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    return this.trajetsService.getTrajetDetail(id, req.user.userId);
   }
 
   @Get(':id/rencontre')

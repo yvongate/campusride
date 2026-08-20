@@ -33,7 +33,7 @@ const UNIVERSITES = [
   },
   { nom: 'ESATIC', commune: 'Treichville', latitude: 5.2906335, longitude: -3.9987569 },
   {
-    nom: "Université Catholique de l'Afrique de l'Ouest",
+    nom: "Université Catholique de l'Afrique de l'Ouest (UCAO)",
     commune: 'Cocody',
     latitude: 5.3312492,
     longitude: -3.9957166,
@@ -958,12 +958,30 @@ const DEMO_USERS: DemoUser[] = [
   { telephone: '+2250700000108', nom: 'Gnahoré', prenom: 'Yves', conducteur: false },
   { telephone: '+2250700000109', nom: 'Adjoua', prenom: 'Elisabeth', conducteur: false },
   { telephone: '+2250700000110', nom: 'Diallo', prenom: 'Moussa', conducteur: false },
-  // Bassin de passagers/participants (rejoignent trajets et demandes).
+  // Bassin de passagers/participants. Il en faut 17 (14 reservations + 3
+  // participations) car un compte ne peut appartenir qu'a UNE activite a la
+  // fois (voir common/utils/activite-active.ts). Avec un bassin plus petit,
+  // les memes comptes se retrouvaient dans 3 ou 4 trajets simultanes : un jury
+  // qui se connecte dessus verrait un etat que l'app interdit, et serait
+  // bloque a la moindre creation. Chaque compte ci-dessous n'apparait donc
+  // qu'une seule fois dans DEMO_TRAJETS + DEMO_DEMANDES.
   { telephone: '+2250700000111', nom: 'Koffi', prenom: 'Aya', conducteur: false },
   { telephone: '+2250700000112', nom: 'Diabaté', prenom: 'Fatou', conducteur: false },
   { telephone: '+2250700000113', nom: "N'Guessan", prenom: 'Grace', conducteur: false },
   { telephone: '+2250700000114', nom: 'Traoré', prenom: 'Aminata', conducteur: false },
   { telephone: '+2250700000115', nom: 'Sanogo', prenom: 'Mariam', conducteur: false },
+  { telephone: '+2250700000116', nom: 'Ouattara', prenom: 'Salif', conducteur: false },
+  { telephone: '+2250700000117', nom: 'Aka', prenom: 'Christelle', conducteur: false },
+  { telephone: '+2250700000118', nom: 'Konan', prenom: 'Eric', conducteur: false },
+  { telephone: '+2250700000119', nom: 'Tanoh', prenom: 'Prisca', conducteur: false },
+  { telephone: '+2250700000120', nom: 'Zadi', prenom: 'Franck', conducteur: false },
+  { telephone: '+2250700000121', nom: 'Bakayoko', prenom: 'Awa', conducteur: false },
+  { telephone: '+2250700000122', nom: 'Yeboua', prenom: 'Cédric', conducteur: false },
+  { telephone: '+2250700000123', nom: 'Silué', prenom: 'Korotoum', conducteur: false },
+  { telephone: '+2250700000124', nom: 'Ehouman', prenom: 'Landry', conducteur: false },
+  { telephone: '+2250700000125', nom: 'Kacou', prenom: 'Sylvie', conducteur: false },
+  { telephone: '+2250700000126', nom: 'Doumbia', prenom: 'Karim', conducteur: false },
+  { telephone: '+2250700000127', nom: 'Amani', prenom: 'Ruth', conducteur: false },
 ];
 
 interface DemoTrajet {
@@ -972,7 +990,7 @@ interface DemoTrajet {
   conducteurTel: string;
   passagersTel: string[];
   heure: Date;
-  prixTotal: number;
+  cotisation: number;
 }
 
 interface DemoDemande {
@@ -986,46 +1004,74 @@ interface DemoDemande {
   quotaAtteint: boolean;
 }
 
+// Les creneaux de demonstration sont RELATIFS a l'instant du seed, jamais des
+// dates absolues. Avec des dates en dur, le jeu de donnees devenait invalide
+// des le lendemain : la fenetre de reservation n'accepte qu'aujourd'hui ou
+// demain (voir common/utils/fenetre-reservation.ts), et les crons
+// d'expiration basculent en "annule"/"expiree" tout ce dont l'heure est
+// passee -- l'app se retrouvait vide. Re-lancer le seed suffit desormais a
+// obtenir un jeu coherent, quel que soit le jour.
+// Marge volontairement plus large que le minimum metier de 1h15 : un creneau
+// cree pile a 1h15 expirerait au bout de 75 minutes, donc potentiellement en
+// pleine demonstration. Avec 3 heures, un seed lance le matin tient toute la
+// matinee et l'apres-midi sans qu'aucun trajet ne disparaisse sous les yeux du
+// jury.
+const MARGE_DEMO_MS = 3 * 60 * 60 * 1000;
+
+function creneau(joursApres: 0 | 1, heures: number, minutes = 0): Date {
+  const date = new Date();
+  date.setDate(date.getDate() + joursApres);
+  date.setHours(heures, minutes, 0, 0);
+  // Un creneau "aujourd'hui" deja passe, ou trop proche pour rester visible
+  // assez longtemps, bascule a demain -- sinon le seed creerait des trajets
+  // que le cron annulerait dans la foulee. Les creneaux "demain" ne sont
+  // jamais concernes : ils sont toujours a plus de 3 heures.
+  if (joursApres === 0 && date.getTime() - Date.now() < MARGE_DEMO_MS) {
+    date.setDate(date.getDate() + 1);
+  }
+  return date;
+}
+
 const DEMO_TRAJETS: DemoTrajet[] = [
   {
     communeDepart: 'Yopougon',
     universite: 'FHB Cocody',
     conducteurTel: '+2250700000101',
     passagersTel: ['+2250700000111', '+2250700000112'],
-    heure: new Date('2026-08-24T07:00:00.000Z'),
-    prixTotal: 4000,
+    heure: creneau(0, 7, 0),
+    cotisation: 1000,
   },
   {
     communeDepart: 'Abobo',
     universite: 'Université Nangui Abrogoua',
     conducteurTel: '+2250700000102',
-    passagersTel: ['+2250700000113', '+2250700000114', '+2250700000115', '+2250700000111'],
-    heure: new Date('2026-08-24T12:30:00.000Z'),
-    prixTotal: 3600,
+    passagersTel: ['+2250700000113', '+2250700000114', '+2250700000115', '+2250700000116'],
+    heure: creneau(0, 12, 30),
+    cotisation: 900,
   },
   {
     communeDepart: 'Marcory',
-    universite: "Université Catholique de l'Afrique de l'Ouest",
+    universite: "Université Catholique de l'Afrique de l'Ouest (UCAO)",
     conducteurTel: '+2250700000103',
-    passagersTel: ['+2250700000112'],
-    heure: new Date('2026-08-25T17:00:00.000Z'),
-    prixTotal: 3000,
+    passagersTel: ['+2250700000117'],
+    heure: creneau(1, 17, 0),
+    cotisation: 750,
   },
   {
     communeDepart: 'Adjamé',
     universite: 'ESATIC',
     conducteurTel: '+2250700000104',
-    passagersTel: ['+2250700000113', '+2250700000114', '+2250700000115'],
-    heure: new Date('2026-08-25T07:30:00.000Z'),
-    prixTotal: 2800,
+    passagersTel: ['+2250700000118', '+2250700000119', '+2250700000120'],
+    heure: creneau(1, 7, 30),
+    cotisation: 700,
   },
   {
     communeDepart: 'Port-Bouët',
     universite: 'FHB Cocody',
     conducteurTel: '+2250700000105',
-    passagersTel: ['+2250700000111', '+2250700000112', '+2250700000113', '+2250700000114'],
-    heure: new Date('2026-08-26T07:00:00.000Z'),
-    prixTotal: 4400,
+    passagersTel: ['+2250700000121', '+2250700000122', '+2250700000123', '+2250700000124'],
+    heure: creneau(1, 9, 0),
+    cotisation: 1100,
   },
 ];
 
@@ -1034,10 +1080,10 @@ const DEMO_DEMANDES: DemoDemande[] = [
     communeDepart: 'Koumassi',
     universite: "Université Internationale de Côte d'Ivoire (UICI)",
     createurTel: '+2250700000106',
-    participantsTel: ['+2250700000111'],
+    participantsTel: ['+2250700000125'],
     placesRecherchees: 2,
     cotisation: 1500,
-    heure: new Date('2026-08-24T07:00:00.000Z'),
+    heure: creneau(0, 8, 0),
     quotaAtteint: true,
   },
   {
@@ -1047,7 +1093,7 @@ const DEMO_DEMANDES: DemoDemande[] = [
     participantsTel: [],
     placesRecherchees: 3,
     cotisation: 1200,
-    heure: new Date('2026-08-25T12:00:00.000Z'),
+    heure: creneau(1, 12, 0),
     quotaAtteint: false,
   },
   {
@@ -1057,27 +1103,27 @@ const DEMO_DEMANDES: DemoDemande[] = [
     participantsTel: [],
     placesRecherchees: 2,
     cotisation: 1000,
-    heure: new Date('2026-08-26T09:00:00.000Z'),
+    heure: creneau(1, 9, 30),
     quotaAtteint: false,
   },
   {
     communeDepart: 'Treichville',
     universite: 'Université Nangui Abrogoua',
     createurTel: '+2250700000109',
-    participantsTel: ['+2250700000112', '+2250700000113'],
+    participantsTel: ['+2250700000126', '+2250700000127'],
     placesRecherchees: 3,
     cotisation: 1300,
-    heure: new Date('2026-08-24T16:00:00.000Z'),
+    heure: creneau(0, 16, 0),
     quotaAtteint: true,
   },
   {
     communeDepart: 'Attécoubé',
-    universite: "Université Catholique de l'Afrique de l'Ouest",
+    universite: "Université Catholique de l'Afrique de l'Ouest (UCAO)",
     createurTel: '+2250700000110',
     participantsTel: [],
     placesRecherchees: 2,
     cotisation: 1400,
-    heure: new Date('2026-08-25T18:00:00.000Z'),
+    heure: creneau(1, 18, 0),
     quotaAtteint: false,
   },
 ];
@@ -1123,8 +1169,12 @@ async function seedDemo() {
     const conducteurId = userIdByTel.get(t.conducteurTel);
     if (!conducteurId) continue;
 
+    // Dedup par conducteur et non par heure : l'heure etant desormais
+    // relative, elle differe a chaque execution et ne peut plus servir de cle.
+    // "Un trajet a venir encore ouvert" suffit -- chaque conducteur demo n'en
+    // a qu'un, et ceux d'hier sont passes, donc un nouveau seed les remplace.
     const dejaTrajet = await prisma.trajet.findFirst({
-      where: { conducteurId, heure: t.heure },
+      where: { conducteurId, statut: 'ouvert', heure: { gt: new Date() } },
     });
     if (dejaTrajet) continue;
 
@@ -1146,17 +1196,16 @@ async function seedDemo() {
         pointDeRdvId: poi.id,
         heure: t.heure,
         places: 4,
-        prixTotal: t.prixTotal,
+        cotisation: t.cotisation,
         statut: 'ouvert',
       },
     });
 
-    const prixParPersonne = Math.round(t.prixTotal / (t.passagersTel.length + 1));
     for (const passagerTel of t.passagersTel) {
       const passagerId = userIdByTel.get(passagerTel);
       if (!passagerId) continue;
       await prisma.reservation.create({
-        data: { trajetId: trajet.id, passagerId, prixParPersonne, statut: 'confirmee' },
+        data: { trajetId: trajet.id, passagerId, prixParPersonne: t.cotisation, statut: 'confirmee' },
       });
     }
     console.log(`Trajet demo cree : ${t.communeDepart} -> ${t.universite} (${t.passagersTel.length}/4 places)`);
@@ -1166,8 +1215,13 @@ async function seedDemo() {
     const createurId = userIdByTel.get(d.createurTel);
     if (!createurId) continue;
 
+    // Meme raison que pour les trajets ci-dessus.
     const dejaDemande = await prisma.demande.findFirst({
-      where: { createurId, heure: d.heure },
+      where: {
+        createurId,
+        statut: { in: ['ouverte', 'quota_atteint'] },
+        heure: { gt: new Date() },
+      },
     });
     if (dejaDemande) continue;
 

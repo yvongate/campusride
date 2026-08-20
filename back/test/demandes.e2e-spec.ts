@@ -673,7 +673,9 @@ describe('Demandes (e2e)', () => {
       expect(trajet.mode).toBe('A');
       expect(trajet.pointDeRdvId).toBe(poiId);
       expect(trajet.places).toBe(2);
-      expect(trajet.prixTotal).toBe(1000);
+      // La cotisation de la demande est reprise telle quelle (§6.1) : ce
+      // n'est plus un total redivise entre les passagers.
+      expect(trajet.cotisation).toBe(500);
 
       const reservations = await prisma.reservation.findMany({
         where: { trajetId },

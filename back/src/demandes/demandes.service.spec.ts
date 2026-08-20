@@ -7,12 +7,12 @@ import {
 } from '@nestjs/common';
 import { DemandesService } from './demandes.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { TrajetsService } from '../trajets/trajets.service';
 
 describe('DemandesService', () => {
   let service: DemandesService;
   let universiteFindUniqueMock: jest.Mock;
-  let universiteFindManyMock: jest.Mock;
   let communeFindUniqueMock: jest.Mock;
   let poiFindUniqueMock: jest.Mock;
   let demandeCreateMock: jest.Mock;
@@ -22,6 +22,7 @@ describe('DemandesService', () => {
   let demandeUpdateMock: jest.Mock;
   let participationCreateMock: jest.Mock;
   let participationFindFirstMock: jest.Mock;
+  let participationUpdateMock: jest.Mock;
   let participationCountMock: jest.Mock;
   let participationFindManyMock: jest.Mock;
   let poiFindManyMock: jest.Mock;
@@ -29,21 +30,38 @@ describe('DemandesService', () => {
   let trajetFindUniqueMock: jest.Mock;
   let trajetFindFirstMock: jest.Mock;
   let reservationCreateManyMock: jest.Mock;
+  let reservationFindFirstMock: jest.Mock;
   let verifierConducteurEtChevauchementMock: jest.Mock;
   let utilisateurFindUniqueMock: jest.Mock;
+  let utilisateurFindUniqueOrThrowMock: jest.Mock;
+  let utilisateurUpdateMock: jest.Mock;
   let documentsConducteurFindFirstMock: jest.Mock;
+
+  // Toujours "demain a midi UTC" par rapport a l'execution du test --
+  // verifierFenetreReservation (creerDemande) n'accepte plus qu'aujourd'hui
+  // ou demain, une date fixe en dur casserait des que "demain" serait passe.
+  function demain(): string {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + 1);
+    d.setUTCHours(12, 0, 0, 0);
+    return d.toISOString();
+  }
 
   const baseDto = {
     universiteId: 'univ-1',
     communeId: 'commune-1',
-    heure: '2026-09-01T07:00:00.000Z',
+    heure: demain(),
     placesRecherchees: 4,
     cotisation: 500,
   };
 
+  // Les notifications sont un effet de bord : les tests verifient le
+  // comportement metier, pas les envois (couverts par notifications.service.spec).
+  const notificationsMock = { envoyer: jest.fn().mockResolvedValue(undefined) };
+
   beforeEach(async () => {
+    notificationsMock.envoyer.mockClear();
     universiteFindUniqueMock = jest.fn();
-    universiteFindManyMock = jest.fn();
     communeFindUniqueMock = jest.fn();
     poiFindUniqueMock = jest.fn();
     demandeCreateMock = jest.fn();
@@ -53,6 +71,7 @@ describe('DemandesService', () => {
     demandeUpdateMock = jest.fn();
     participationCreateMock = jest.fn();
     participationFindFirstMock = jest.fn();
+    participationUpdateMock = jest.fn();
     participationCountMock = jest.fn();
     participationFindManyMock = jest.fn().mockResolvedValue([]);
     poiFindManyMock = jest.fn().mockResolvedValue([]);
@@ -60,15 +79,19 @@ describe('DemandesService', () => {
     trajetFindUniqueMock = jest.fn();
     trajetFindFirstMock = jest.fn().mockResolvedValue(null);
     reservationCreateManyMock = jest.fn();
+    reservationFindFirstMock = jest.fn().mockResolvedValue(null);
     verifierConducteurEtChevauchementMock = jest
       .fn()
       .mockResolvedValue(undefined);
     utilisateurFindUniqueMock = jest.fn();
+    utilisateurFindUniqueOrThrowMock = jest.fn();
+    utilisateurUpdateMock = jest.fn();
     documentsConducteurFindFirstMock = jest.fn();
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         DemandesService,
+        { provide: NotificationsService, useValue: notificationsMock },
         {
           provide: TrajetsService,
           useValue: {
@@ -79,10 +102,7 @@ describe('DemandesService', () => {
         {
           provide: PrismaService,
           useValue: {
-            universite: {
-              findUnique: universiteFindUniqueMock,
-              findMany: universiteFindManyMock,
-            },
+            universite: { findUnique: universiteFindUniqueMock },
             commune: { findUnique: communeFindUniqueMock },
             pointInteret: {
               findUnique: poiFindUniqueMock,
@@ -98,32 +118,61 @@ describe('DemandesService', () => {
             participation: {
               create: participationCreateMock,
               findFirst: participationFindFirstMock,
+              update: participationUpdateMock,
               count: participationCountMock,
               findMany: participationFindManyMock,
             },
             trajet: { findUnique: trajetFindUniqueMock, findFirst: trajetFindFirstMock },
-            utilisateur: { findUnique: utilisateurFindUniqueMock },
+            reservation: { findFirst: reservationFindFirstMock },
+            utilisateur: {
+              findUnique: utilisateurFindUniqueMock,
+              // annulerDemande calcule la sanction du createur qui casse un
+              // groupe deja constitue.
+              findUniqueOrThrow: utilisateurFindUniqueOrThrowMock,
+              update: utilisateurUpdateMock,
+            },
             documentsConducteur: {
               findFirst: documentsConducteurFindFirstMock,
             },
+            // Polymorphe : creerDemande/accepterDemande utilisent le style
+            // "transaction interactive" (callback recevant un tx), tandis
+            // que quitterDemande utilise le style "tableau statique" (meme
+            // convention que TrajetsService.annulerTrajet/annulerReservation,
+            // voir Story 3.5 Dev Notes) -- ce mock gere les deux formes.
             $transaction: jest.fn(
               (
-                fn: (tx: {
-                  demande: { create: jest.Mock; update: jest.Mock };
-                  participation: { create: jest.Mock };
-                  trajet: { create: jest.Mock };
-                  reservation: { createMany: jest.Mock };
-                }) => Promise<unknown>,
-              ) =>
-                fn({
+                arg:
+                  | ((tx: {
+                      demande: { create: jest.Mock; update: jest.Mock };
+                      participation: {
+                        create: jest.Mock;
+                        update: jest.Mock;
+                        count: jest.Mock;
+                      };
+                      trajet: { create: jest.Mock };
+                      reservation: { createMany: jest.Mock };
+                    }) => Promise<unknown>)
+                  | Promise<unknown>[],
+              ) => {
+                if (Array.isArray(arg)) {
+                  return Promise.all(arg);
+                }
+                return arg({
                   demande: {
                     create: demandeCreateMock,
                     update: demandeUpdateMock,
                   },
-                  participation: { create: participationCreateMock },
+                  participation: {
+                    create: participationCreateMock,
+                    update: participationUpdateMock,
+                    // rejoindreDemande compte desormais DANS la transaction
+                    // (garde-fou anti-surreservation).
+                    count: participationCountMock,
+                  },
                   trajet: { create: trajetCreateMock },
                   reservation: { createMany: reservationCreateManyMock },
-                }),
+                });
+              },
             ),
           },
         },
@@ -182,6 +231,7 @@ describe('DemandesService', () => {
         id: 'poi-1',
         latitude: 5.4,
         longitude: -4.0,
+        quartier: { communeId: 'commune-1' },
       });
       demandeCreateMock.mockResolvedValueOnce({
         id: 'demande-2',
@@ -194,8 +244,12 @@ describe('DemandesService', () => {
         poiId: 'poi-1',
       });
 
+      // Le poiId de la Demande reste null a la creation, meme quand
+      // chezMoi=false -- reserve au point de regroupement du groupe (voir
+      // verifierQuotaEtCalculerPoint), pas a la position individuelle du
+      // createur (deja capturee sur sa Participation, verifie ci-dessous).
       expect(demandeCreateMock).toHaveBeenCalledWith({
-        data: expect.objectContaining({ poiId: 'poi-1' }) as unknown,
+        data: expect.not.objectContaining({ poiId: expect.anything() }) as unknown,
       });
       expect(participationCreateMock).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -212,6 +266,7 @@ describe('DemandesService', () => {
         id: 'poi-1',
         latitude: 5.4,
         longitude: -4.0,
+        quartier: { communeId: 'commune-1' },
       });
       demandeCreateMock.mockResolvedValueOnce({
         id: 'demande-3',
@@ -226,8 +281,12 @@ describe('DemandesService', () => {
         lng: -4.001,
       });
 
+      // Le poiId de la Demande reste null a la creation, meme quand
+      // chezMoi=false -- reserve au point de regroupement du groupe (voir
+      // verifierQuotaEtCalculerPoint), pas a la position individuelle du
+      // createur (deja capturee sur sa Participation, verifie ci-dessous).
       expect(demandeCreateMock).toHaveBeenCalledWith({
-        data: expect.objectContaining({ poiId: 'poi-1' }) as unknown,
+        data: expect.not.objectContaining({ poiId: expect.anything() }) as unknown,
       });
       expect(participationCreateMock).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -256,9 +315,52 @@ describe('DemandesService', () => {
       expect(demandeFindFirstMock).toHaveBeenCalledWith({
         where: {
           createurId: 'createur-1',
-          statut: { in: ['ouverte', 'quota_atteint', 'acceptee'] },
+          OR: [
+            { statut: { in: ['ouverte', 'quota_atteint'] } },
+            {
+              statut: 'acceptee',
+              trajet: { statut: { in: ['ouvert', 'commence'] } },
+            },
+          ],
         },
       });
+      expect(demandeCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictException when the createur already conducts an active trajet', async () => {
+      universiteFindUniqueMock.mockResolvedValueOnce({ id: 'univ-1' });
+      communeFindUniqueMock.mockResolvedValueOnce({ id: 'commune-1' });
+      trajetFindFirstMock.mockResolvedValueOnce({
+        id: 'trajet-actif',
+        statut: 'ouvert',
+      });
+
+      await expect(
+        service.creerDemande('createur-1', {
+          ...baseDto,
+          chezMoi: true,
+          lat: 5.36,
+          lng: -3.98,
+        }),
+      ).rejects.toThrow(ConflictException);
+      expect(demandeCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictException when the createur already has a confirmed reservation elsewhere', async () => {
+      universiteFindUniqueMock.mockResolvedValueOnce({ id: 'univ-1' });
+      communeFindUniqueMock.mockResolvedValueOnce({ id: 'commune-1' });
+      reservationFindFirstMock.mockResolvedValueOnce({
+        id: 'reservation-active',
+      });
+
+      await expect(
+        service.creerDemande('createur-1', {
+          ...baseDto,
+          chezMoi: true,
+          lat: 5.36,
+          lng: -3.98,
+        }),
+      ).rejects.toThrow(ConflictException);
       expect(demandeCreateMock).not.toHaveBeenCalled();
     });
 
@@ -309,18 +411,13 @@ describe('DemandesService', () => {
 
   describe('listerDemandes', () => {
     it('filters by universiteId, communeId and statut "ouverte"', async () => {
-      universiteFindUniqueMock.mockResolvedValueOnce({
-        id: 'univ-1',
-        commune: 'Cocody',
-      });
-      universiteFindManyMock.mockResolvedValueOnce([{ id: 'univ-1' }]);
       demandeFindManyMock.mockResolvedValueOnce([]);
 
       await service.listerDemandes('univ-1', 'commune-1', 'user-1');
 
       expect(demandeFindManyMock).toHaveBeenCalledWith({
         where: {
-          universiteId: { in: ['univ-1'] },
+          universiteId: 'univ-1',
           communeId: 'commune-1',
           statut: 'ouverte',
         },
@@ -331,28 +428,6 @@ describe('DemandesService', () => {
         },
         orderBy: { heure: 'asc' },
       });
-    });
-
-    it('also includes demandes towards other universites in the same commune (proximite)', async () => {
-      universiteFindUniqueMock.mockResolvedValueOnce({
-        id: 'univ-1',
-        commune: 'Cocody',
-      });
-      universiteFindManyMock.mockResolvedValueOnce([
-        { id: 'univ-1' },
-        { id: 'univ-2' },
-      ]);
-      demandeFindManyMock.mockResolvedValueOnce([]);
-
-      await service.listerDemandes('univ-1', 'commune-1', 'user-1');
-
-      expect(demandeFindManyMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            universiteId: { in: ['univ-1', 'univ-2'] },
-          }),
-        }),
-      );
     });
 
     it('computes placesRestantes from the confirmed participation count', async () => {
@@ -454,6 +529,22 @@ describe('DemandesService', () => {
       expect(participationCreateMock).not.toHaveBeenCalled();
     });
 
+    it('throws ConflictException when the user already has a confirmed reservation on a trajet elsewhere', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        statut: 'ouverte',
+        placesRecherchees: 4,
+      });
+      reservationFindFirstMock.mockResolvedValueOnce({
+        id: 'reservation-active',
+      });
+
+      await expect(
+        service.rejoindreDemande('user-1', 'demande-1', joinDto),
+      ).rejects.toThrow(ConflictException);
+      expect(participationCreateMock).not.toHaveBeenCalled();
+    });
+
     it('throws ConflictException when the user already has a confirmed participation', async () => {
       demandeFindUniqueMock.mockResolvedValueOnce({
         id: 'demande-1',
@@ -542,18 +633,22 @@ describe('DemandesService', () => {
           longitude: -3.975,
         },
       ]);
-      const loggerSpy = jest.spyOn(service['logger'], 'log');
-
       await service.rejoindreDemande('user-1', 'demande-1', joinDto);
 
       expect(demandeUpdateMock).toHaveBeenCalledWith({
         where: { id: 'demande-1' },
         data: { statut: 'quota_atteint', poiId: 'poi-proche' },
       });
-      expect(loggerSpy).toHaveBeenCalledTimes(2);
+      // Tous les participants sont prevenus du point de rendez-vous.
+      expect(notificationsMock.envoyer).toHaveBeenCalledWith(
+        ['createur-1', 'user-1'],
+        'Point de regroupement trouve'.replace('regroupement trouve', 'regroupement trouvé'),
+        expect.stringContaining('POI proche') as unknown as string,
+        { type: 'demande', id: 'demande-1' },
+      );
     });
 
-    it('reaches quota and still suggests the nearest POI even when it is far from the centroid', async () => {
+    it('reaches quota but suggests NO point when the nearest POI is beyond the max distance (§5)', async () => {
       demandeFindUniqueMock
         .mockResolvedValueOnce({
           id: 'demande-1',
@@ -574,6 +669,8 @@ describe('DemandesService', () => {
         { userId: 'user-1', positionLat: 5.37, positionLng: -3.97 },
       ]);
       poiFindManyMock.mockResolvedValueOnce([
+        // ~150 km du centroide : imposer ce point de rendez-vous n'aurait
+        // aucun sens, mieux vaut n'en proposer aucun (§5).
         { id: 'poi-loin', nom: 'POI loin', latitude: 6.0, longitude: -5.0 },
       ]);
 
@@ -581,7 +678,7 @@ describe('DemandesService', () => {
 
       expect(demandeUpdateMock).toHaveBeenCalledWith({
         where: { id: 'demande-1' },
-        data: { statut: 'quota_atteint', poiId: 'poi-loin' },
+        data: { statut: 'quota_atteint' },
       });
     });
 
@@ -644,6 +741,20 @@ describe('DemandesService', () => {
   });
 
   describe('expirerDemandesEnRetard', () => {
+    it('targets both "ouverte" and "quota_atteint" demandes within 2h', async () => {
+      demandeFindManyMock.mockResolvedValueOnce([]);
+
+      await service.expirerDemandesEnRetard();
+
+      expect(demandeFindManyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            statut: { in: ['ouverte', 'quota_atteint'] },
+          }) as object,
+        }),
+      );
+    });
+
     it('expires an "ouverte" demande within 2h and notifies every confirmed participant', async () => {
       demandeFindManyMock.mockResolvedValueOnce([
         {
@@ -651,20 +762,34 @@ describe('DemandesService', () => {
           participations: [{ userId: 'createur-1' }, { userId: 'user-1' }],
         },
       ]);
-      const loggerSpy = jest.spyOn(service['logger'], 'log');
-
       await service.expirerDemandesEnRetard();
 
-      expect(demandeFindManyMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ statut: 'ouverte' }) as object,
-        }),
-      );
       expect(demandeUpdateMock).toHaveBeenCalledWith({
         where: { id: 'demande-1' },
         data: { statut: 'expiree' },
       });
-      expect(loggerSpy).toHaveBeenCalledTimes(2);
+      expect(notificationsMock.envoyer).toHaveBeenCalledWith(
+        ['createur-1', 'user-1'],
+        expect.any(String) as unknown as string,
+        expect.any(String) as unknown as string,
+        { type: 'demande', id: 'demande-1' },
+      );
+    });
+
+    it('also expires a "quota_atteint" demande that never found a conducteur in time', async () => {
+      demandeFindManyMock.mockResolvedValueOnce([
+        {
+          id: 'demande-2',
+          participations: [{ userId: 'createur-1' }],
+        },
+      ]);
+
+      await service.expirerDemandesEnRetard();
+
+      expect(demandeUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'demande-2' },
+        data: { statut: 'expiree' },
+      });
     });
 
     it('does nothing when no demande is eligible', async () => {
@@ -677,20 +802,15 @@ describe('DemandesService', () => {
   });
 
   describe('listerDemandesDisponibles', () => {
-    it('filters by universiteId, communeId, statut "quota_atteint" and poiId not null', async () => {
-      universiteFindUniqueMock.mockResolvedValueOnce({
-        id: 'univ-1',
-        commune: 'Cocody',
-      });
-      universiteFindManyMock.mockResolvedValueOnce([{ id: 'univ-1' }]);
+    it('filters by universiteId, communeId, statut "quota_atteint" and poiId not null when universiteId is given', async () => {
       demandeFindManyMock.mockResolvedValueOnce([]);
 
-      await service.listerDemandesDisponibles('univ-1', 'commune-1');
+      await service.listerDemandesDisponibles('commune-1', 'univ-1');
 
       expect(demandeFindManyMock).toHaveBeenCalledWith({
         where: {
-          universiteId: { in: ['univ-1'] },
           communeId: 'commune-1',
+          universiteId: 'univ-1',
           statut: 'quota_atteint',
           poiId: { not: null },
         },
@@ -698,31 +818,25 @@ describe('DemandesService', () => {
           createur: {
             select: { id: true, nom: true, prenom: true, note: true, nombreNotations: true },
           },
+          universite: true,
           poi: true,
         },
         orderBy: { heure: 'asc' },
       });
     });
 
-    it('also includes demandes towards other universites in the same commune (proximite)', async () => {
-      universiteFindUniqueMock.mockResolvedValueOnce({
-        id: 'univ-1',
-        commune: 'Cocody',
-      });
-      universiteFindManyMock.mockResolvedValueOnce([
-        { id: 'univ-1' },
-        { id: 'univ-2' },
-        { id: 'univ-3' },
-      ]);
+    it('omits the universiteId filter entirely for a "chauffeur" conducteur (no universite)', async () => {
       demandeFindManyMock.mockResolvedValueOnce([]);
 
-      await service.listerDemandesDisponibles('univ-1', 'commune-1');
+      await service.listerDemandesDisponibles('commune-1');
 
       expect(demandeFindManyMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({
-            universiteId: { in: ['univ-1', 'univ-2', 'univ-3'] },
-          }),
+          where: {
+            communeId: 'commune-1',
+            statut: 'quota_atteint',
+            poiId: { not: null },
+          },
         }),
       );
     });
@@ -743,6 +857,19 @@ describe('DemandesService', () => {
         id: 'demande-1',
         statut: 'ouverte',
         poiId: null,
+      });
+
+      await expect(
+        service.accepterDemande('conducteur-1', 'demande-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(trajetCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('throws a distinct ConflictException when the demande was already accepted by another conducteur', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        statut: 'acceptee',
+        poiId: 'poi-1',
       });
 
       await expect(
@@ -802,6 +929,23 @@ describe('DemandesService', () => {
       expect(trajetCreateMock).not.toHaveBeenCalled();
     });
 
+    it('throws ConflictException when the conducteur already has an active participation elsewhere', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        statut: 'quota_atteint',
+        poiId: 'poi-1',
+        heure: new Date('2026-09-01T07:00:00.000Z'),
+      });
+      participationFindFirstMock.mockResolvedValueOnce({
+        id: 'participation-active',
+      });
+
+      await expect(
+        service.accepterDemande('conducteur-1', 'demande-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(trajetCreateMock).not.toHaveBeenCalled();
+    });
+
     it('creates a Trajet mode "A" with a Reservation per confirmed Participation', async () => {
       demandeFindUniqueMock.mockResolvedValueOnce({
         id: 'demande-1',
@@ -818,7 +962,6 @@ describe('DemandesService', () => {
         { userId: 'user-2' },
       ]);
       trajetCreateMock.mockResolvedValueOnce({ id: 'trajet-1' });
-      const loggerSpy = jest.spyOn(service['logger'], 'log');
 
       const result = await service.accepterDemande('conducteur-1', 'demande-1');
 
@@ -833,7 +976,9 @@ describe('DemandesService', () => {
           pointDeRdvId: 'poi-1',
           heure: new Date('2026-09-01T07:00:00.000Z'),
           places: 3,
-          prixTotal: 1500,
+          // Cotisation de la demande reprise telle quelle, pas un total
+          // (500 x 3) qui serait ensuite redivise (§6.1).
+          cotisation: 500,
           mode: 'A',
           statut: 'ouvert',
         },
@@ -864,7 +1009,13 @@ describe('DemandesService', () => {
         where: { id: 'demande-1' },
         data: { statut: 'acceptee', trajetId: 'trajet-1' },
       });
-      expect(loggerSpy).toHaveBeenCalledTimes(3);
+      // Les 3 participants sont prevenus en un seul envoi groupe.
+      expect(notificationsMock.envoyer).toHaveBeenCalledWith(
+        ['createur-1', 'user-1', 'user-2'],
+        'Un conducteur a accepté !',
+        expect.any(String) as unknown as string,
+        { type: 'trajet', id: 'trajet-1' },
+      );
       expect(result).toEqual({ id: 'trajet-1' });
     });
   });
@@ -1001,6 +1152,191 @@ describe('DemandesService', () => {
       expect(demandeUpdateMock).toHaveBeenCalledWith({
         where: { id: 'demande-1' },
         data: { statut: 'annulee' },
+      });
+    });
+
+    it("ne sanctionne PAS le createur quand personne n'avait rejoint", async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        createurId: 'createur-1',
+        statut: 'ouverte',
+      });
+      participationFindManyMock.mockResolvedValueOnce([]);
+
+      await service.annulerDemande('createur-1', 'demande-1');
+
+      // Annuler une demande que personne n'a rejointe ne lese personne :
+      // meme principe que le conducteur qui retire une annonce sans
+      // reservation.
+      expect(utilisateurFindUniqueOrThrowMock).not.toHaveBeenCalled();
+      expect(utilisateurUpdateMock).not.toHaveBeenCalled();
+    });
+
+    it('compte une annulation tardive quand le createur casse un groupe deja constitue', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        createurId: 'createur-1',
+        statut: 'quota_atteint',
+      });
+      participationFindManyMock.mockResolvedValueOnce([{ userId: 'user-1' }]);
+      utilisateurFindUniqueOrThrowMock.mockResolvedValueOnce({
+        annulationsTardives: 0,
+      });
+
+      await service.annulerDemande('createur-1', 'demande-1');
+
+      expect(utilisateurUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'createur-1' },
+        data: { annulationsTardives: 1 },
+      });
+    });
+
+    it('suspend le createur a sa 2e annulation tardive, tous types confondus', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        createurId: 'createur-1',
+        statut: 'quota_atteint',
+      });
+      participationFindManyMock.mockResolvedValueOnce([{ userId: 'user-1' }]);
+      // Compteur partage avec les annulations tardives de reservation : une
+      // 1re infraction cote passager compte pour la 2e cote createur.
+      utilisateurFindUniqueOrThrowMock.mockResolvedValueOnce({
+        annulationsTardives: 1,
+      });
+
+      const resultat = await service.annulerDemande('createur-1', 'demande-1');
+
+      expect(resultat.suspenduJusqua).toBeInstanceOf(Date);
+      const [{ data }] = utilisateurUpdateMock.mock.calls[0] as [
+        { data: { annulationsTardives: number; suspenduJusqua: Date } },
+      ];
+      expect(data.annulationsTardives).toBe(0);
+    });
+
+    it('logs one notification per other confirmed participant (not the createur itself)', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        createurId: 'createur-1',
+        statut: 'quota_atteint',
+      });
+      participationFindManyMock.mockResolvedValueOnce([
+        { userId: 'user-1' },
+        { userId: 'user-2' },
+      ]);
+      // Le groupe n'est pas vide : la sanction du createur est calculee,
+      // donc son compteur d'annulations tardives est lu.
+      utilisateurFindUniqueOrThrowMock.mockResolvedValueOnce({
+        annulationsTardives: 0,
+      });
+
+      await service.annulerDemande('createur-1', 'demande-1');
+
+      expect(participationFindManyMock).toHaveBeenCalledWith({
+        where: {
+          demandeId: 'demande-1',
+          statut: 'confirmee',
+          userId: { not: 'createur-1' },
+        },
+        select: { userId: true },
+      });
+      // Seuls les AUTRES participants sont notifies, pas le createur qui
+      // vient lui-meme d'annuler.
+      expect(notificationsMock.envoyer).toHaveBeenCalledWith(
+        ['user-1', 'user-2'],
+        'Demande annulée',
+        expect.any(String) as unknown as string,
+        { type: 'demande', id: 'demande-1' },
+      );
+    });
+  });
+
+  describe('quitterDemande', () => {
+    it('throws NotFoundException when the demande does not exist', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce(null);
+
+      await expect(
+        service.quitterDemande('user-1', 'demande-missing'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws ForbiddenException when the caller is the createur', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        createurId: 'createur-1',
+        statut: 'ouverte',
+      });
+
+      await expect(
+        service.quitterDemande('createur-1', 'demande-1'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(participationFindFirstMock).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictException when the demande has already been accepted', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        createurId: 'createur-1',
+        statut: 'acceptee',
+      });
+
+      await expect(
+        service.quitterDemande('user-1', 'demande-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(participationFindFirstMock).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the caller has no confirmed participation', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        createurId: 'createur-1',
+        statut: 'ouverte',
+      });
+      participationFindFirstMock.mockResolvedValueOnce(null);
+
+      await expect(
+        service.quitterDemande('user-1', 'demande-1'),
+      ).rejects.toThrow(NotFoundException);
+      expect(participationUpdateMock).not.toHaveBeenCalled();
+    });
+
+    it('cancels the participation without touching the demande when it is still "ouverte"', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        createurId: 'createur-1',
+        statut: 'ouverte',
+      });
+      participationFindFirstMock.mockResolvedValueOnce({
+        id: 'participation-1',
+      });
+
+      await service.quitterDemande('user-1', 'demande-1');
+
+      expect(participationUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'participation-1' },
+        data: { statut: 'annulee' },
+      });
+      expect(demandeUpdateMock).not.toHaveBeenCalled();
+    });
+
+    it('reopens the demande and clears the stale poiId when leaving a "quota_atteint" demande', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        createurId: 'createur-1',
+        statut: 'quota_atteint',
+      });
+      participationFindFirstMock.mockResolvedValueOnce({
+        id: 'participation-1',
+      });
+
+      await service.quitterDemande('user-1', 'demande-1');
+
+      expect(participationUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'participation-1' },
+        data: { statut: 'annulee' },
+      });
+      expect(demandeUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'demande-1' },
+        data: { statut: 'ouverte', poiId: null },
       });
     });
   });

@@ -11,6 +11,7 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+import { COTISATION_MAX, PLACES_MAX } from '../../common/limites';
 
 export class CreateDemandeDto {
   @IsString()
@@ -24,12 +25,19 @@ export class CreateDemandeDto {
   @IsISO8601()
   heure: string;
 
+  // Total attendu dans la voiture, createur compris (le mobile envoie donc
+  // "personnes recherchees + 1"). Borne haute indispensable : sans @Max, un
+  // appel direct pouvait creer une demande dont le quota etait hors
+  // d'atteinte, condamnee a expirer sans jamais aboutir.
   @IsInt()
   @Min(1)
+  @Max(PLACES_MAX)
   placesRecherchees: number;
 
+  // Montant du par CHAQUE participant (jamais recalcule ensuite, §6.1).
   @IsNumber()
   @Min(1)
+  @Max(COTISATION_MAX)
   cotisation: number;
 
   @IsBoolean()

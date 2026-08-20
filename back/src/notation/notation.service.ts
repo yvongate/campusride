@@ -27,7 +27,7 @@ export class NotationService {
     });
     if (!reservation) {
       throw new ForbiddenException(
-        'Cet utilisateur ne fait pas partie de ce trajet',
+        'Cet utilisateur ne fait pas partie de ce trajet.',
       );
     }
   }
@@ -71,13 +71,13 @@ export class NotationService {
       where: { id: trajetId },
     });
     if (!trajet) {
-      throw new NotFoundException('Trajet introuvable');
+      throw new NotFoundException('Ce trajet est introuvable.');
     }
     if (trajet.statut !== 'termine') {
-      throw new ConflictException('Seul un trajet "termine" peut etre note');
+      throw new ConflictException('Seul un trajet "terminé" peut être noté.');
     }
     if (dto.destinataireId === noteurId) {
-      throw new BadRequestException('Impossible de se noter soi-meme');
+      throw new BadRequestException('Tu ne peux pas te noter toi-même.');
     }
 
     await this.verifierParticipant(trajetId, trajet.conducteurId, noteurId);
@@ -92,7 +92,7 @@ export class NotationService {
     });
     if (dejaNote) {
       throw new ConflictException(
-        'Tu as deja note ce participant pour ce trajet',
+        'Tu as déjà noté ce participant pour ce trajet.',
       );
     }
 
@@ -116,7 +116,7 @@ export class NotationService {
       where: { id: trajetId },
     });
     if (!trajet) {
-      throw new NotFoundException('Trajet introuvable');
+      throw new NotFoundException('Ce trajet est introuvable.');
     }
 
     await this.verifierParticipant(trajetId, trajet.conducteurId, userId);
@@ -141,7 +141,7 @@ export class NotationService {
       select: { id: true, note: true, nombreNotations: true },
     });
     if (!utilisateur) {
-      throw new NotFoundException('Utilisateur introuvable');
+      throw new NotFoundException('Cet utilisateur est introuvable.');
     }
 
     const notations = await this.prisma.notation.findMany({

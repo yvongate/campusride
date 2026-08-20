@@ -7,9 +7,11 @@ import { AuthModule } from './auth/auth.module';
 import { DemandesModule } from './demandes/demandes.module';
 import { MessagerieModule } from './messagerie/messagerie.module';
 import { NotationModule } from './notation/notation.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ReferentielModule } from './referentiel/referentiel.module';
 import { StatistiquesModule } from './statistiques/statistiques.module';
+import { SupportModule } from './support/support.module';
 import { TrajetsModule } from './trajets/trajets.module';
 import { UsersModule } from './users/users.module';
 
@@ -18,6 +20,7 @@ import { UsersModule } from './users/users.module';
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    NotificationsModule,
     AuthModule,
     UsersModule,
     ReferentielModule,
@@ -26,6 +29,7 @@ import { UsersModule } from './users/users.module';
     MessagerieModule,
     NotationModule,
     StatistiquesModule,
+    SupportModule,
   ],
   controllers: [AppController],
   providers: [AppService],

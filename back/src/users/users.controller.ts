@@ -17,6 +17,7 @@ import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { createReadStream } from 'fs';
 import { extname } from 'path';
 import type { Request } from 'express';
+import { AutoriseSiSuspendu } from '../common/decorators/autorise-si-suspendu.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -47,8 +48,12 @@ const DOCUMENT_CONTENT_TYPES: Record<string, string> = {
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  // Reste joignable meme suspendu : c'est cet appel qui, au demarrage de
+  // l'app, permet d'afficher l'ecran "compte suspendu" et son formulaire de
+  // recours plutot qu'une erreur opaque.
   @Get('me')
   @UseGuards(JwtAuthGuard)
+  @AutoriseSiSuspendu()
   async me(@Req() req: AuthenticatedRequest) {
     const user = await this.usersService.findByIdAvecUniversite(
       req.user.userId,
@@ -61,11 +66,13 @@ export class UsersController {
       nom: user.nom,
       prenom: user.prenom,
       telephone: user.telephone,
+      role: user.role,
       note: user.note,
       nombreNotations: user.nombreNotations,
       universiteId: user.universiteId,
       universite: user.universite ? { id: user.universite.id, nom: user.universite.nom } : null,
       conducteurStatut,
+      suspenduJusqua: user.suspenduJusqua,
     };
   }
 
@@ -112,7 +119,9 @@ export class UsersController {
     const selfie = files.selfie?.[0];
     const permis = files.permis?.[0];
     if (!selfie || !permis) {
-      throw new BadRequestException('Le selfie et la photo du permis sont requis');
+      throw new BadRequestException(
+        'Le selfie et la photo du permis sont obligatoires.',
+      );
     }
     const photoVehicule = files.photoVehicule?.[0];
 

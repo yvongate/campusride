@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { join } from 'path';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CONDUCTEUR_UPLOADS_DIR } from './conducteur-files.storage';
 
@@ -16,7 +17,10 @@ export interface ConducteurFiles {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async findById(id: string) {
     return this.prisma.utilisateur.findUniqueOrThrow({ where: { id } });
@@ -31,20 +35,40 @@ export class UsersService {
 
   async updateProfil(
     userId: string,
-    data: { nom?: string; universiteId?: string },
+    data: { nom?: string; universiteId?: string; estChauffeur?: boolean },
   ) {
     if (data.universiteId) {
       const universite = await this.prisma.universite.findUnique({
         where: { id: data.universiteId },
       });
       if (!universite) {
-        throw new BadRequestException("L'universite indiquee est introuvable");
+        throw new BadRequestException("L'université indiquée est introuvable.");
+      }
+    }
+
+    const updateData: { nom?: string; universiteId?: string; role?: string } =
+      {
+        nom: data.nom,
+        universiteId: data.universiteId,
+      };
+
+    // Ne s'applique qu'a un compte encore "etudiant" (jamais rattache a une
+    // universite ni deja conducteur) -- ne retrograde jamais un compte deja
+    // "les deux" ou "admin". Un compte "chauffeur" qui redeclare
+    // estChauffeur reste simplement "chauffeur" (idempotent).
+    if (data.estChauffeur) {
+      const utilisateur = await this.prisma.utilisateur.findUniqueOrThrow({
+        where: { id: userId },
+        select: { role: true },
+      });
+      if (utilisateur.role === 'etudiant') {
+        updateData.role = 'chauffeur';
       }
     }
 
     return this.prisma.utilisateur.update({
       where: { id: userId },
-      data,
+      data: updateData,
     });
   }
 
@@ -67,7 +91,7 @@ export class UsersService {
     });
     if (pending) {
       throw new ConflictException(
-        'Une demande de compte conducteur est deja en attente',
+        'Une demande de compte conducteur est déjà en attente.',
       );
     }
 
@@ -97,7 +121,7 @@ export class UsersService {
   ): Promise<string> {
     if (type !== 'selfie' && type !== 'permis') {
       throw new BadRequestException(
-        'Type de document invalide (selfie ou permis attendu)',
+        'Type de document invalide (selfie ou permis attendu).',
       );
     }
 
@@ -105,7 +129,7 @@ export class UsersService {
       where: { id: demandeId },
     });
     if (!demande) {
-      throw new NotFoundException('Demande de compte conducteur introuvable');
+      throw new NotFoundException('Cette demande de compte conducteur est introuvable.');
     }
 
     const filename = type === 'selfie' ? demande.selfie : demande.photoPermis;
@@ -117,11 +141,20 @@ export class UsersService {
       where: { id: demandeId },
     });
     if (!demande) {
-      throw new NotFoundException('Demande de compte conducteur introuvable');
+      throw new NotFoundException('Cette demande de compte conducteur est introuvable.');
     }
     if (demande.statut !== 'en attente') {
-      throw new ConflictException('Cette demande a deja ete traitee');
+      throw new ConflictException('Cette demande a déjà été traitée.');
     }
+
+    // Un compte deja "chauffeur" (jamais etudiant, voir
+    // UsersService.updateProfil) reste "chauffeur" une fois valide -- seul un
+    // "etudiant" devient "les deux" (etudiant + conducteur combines).
+    const utilisateur = await this.prisma.utilisateur.findUniqueOrThrow({
+      where: { id: demande.userId },
+      select: { role: true },
+    });
+    const nouveauRole = utilisateur.role === 'chauffeur' ? 'chauffeur' : 'les deux';
 
     const [updatedDemande] = await this.prisma.$transaction([
       this.prisma.documentsConducteur.update({
@@ -130,9 +163,19 @@ export class UsersService {
       }),
       this.prisma.utilisateur.update({
         where: { id: demande.userId },
-        data: { role: 'les deux' },
+        data: { role: nouveauRole },
       }),
     ]);
+
+    // Sans cette notification, un conducteur valide ne l'apprenait qu'en
+    // rouvrant l'app par hasard -- alors que c'est precisement le moment ou
+    // il peut enfin publier un trajet.
+    await this.notifications.envoyer(
+      [demande.userId],
+      'Compte conducteur validé',
+      'Ta demande a été acceptée : tu peux maintenant publier des trajets et accepter des demandes.',
+      { type: 'compte' },
+    );
 
     return updatedDemande;
   }
@@ -142,16 +185,25 @@ export class UsersService {
       where: { id: demandeId },
     });
     if (!demande) {
-      throw new NotFoundException('Demande de compte conducteur introuvable');
+      throw new NotFoundException('Cette demande de compte conducteur est introuvable.');
     }
     if (demande.statut !== 'en attente') {
-      throw new ConflictException('Cette demande a deja ete traitee');
+      throw new ConflictException('Cette demande a déjà été traitée.');
     }
 
-    return this.prisma.documentsConducteur.update({
+    const refusee = await this.prisma.documentsConducteur.update({
       where: { id: demandeId },
       data: { statut: 'refuse' },
     });
+
+    await this.notifications.envoyer(
+      [demande.userId],
+      'Demande conducteur refusée',
+      "Ta demande n'a pas été acceptée. Tu peux en soumettre une nouvelle avec des documents plus lisibles.",
+      { type: 'compte' },
+    );
+
+    return refusee;
   }
 
   async listerComptes() {
@@ -170,30 +222,36 @@ export class UsersService {
     });
   }
 
-  private async changerStatutCompte(userId: string, actif: boolean) {
+  private async changerStatutCompte(
+    userId: string,
+    data: { actif: boolean; suspenduJusqua?: null },
+  ) {
     const utilisateur = await this.prisma.utilisateur.findUnique({
       where: { id: userId },
     });
     if (!utilisateur) {
-      throw new NotFoundException('Compte introuvable');
+      throw new NotFoundException('Ce compte est introuvable.');
     }
     if (utilisateur.role === 'admin') {
       throw new BadRequestException(
-        'Les comptes administrateurs ne sont pas geres par cet endpoint',
+        'Les comptes administrateurs ne sont pas gérés par cette action.',
       );
     }
 
     return this.prisma.utilisateur.update({
       where: { id: userId },
-      data: { actif },
+      data,
     });
   }
 
   async desactiverCompte(userId: string) {
-    return this.changerStatutCompte(userId, false);
+    return this.changerStatutCompte(userId, { actif: false });
   }
 
+  // Leve aussi une suspension pour annulation tardive repetee (voir
+  // TrajetsService.annulerReservation) -- meme bouton, ca donne a l'admin un
+  // recours en cas de motif legitime, sans ecran dedie a la suspension.
   async reactiverCompte(userId: string) {
-    return this.changerStatutCompte(userId, true);
+    return this.changerStatutCompte(userId, { actif: true, suspenduJusqua: null });
   }
 }

@@ -30,6 +30,15 @@ model Utilisateur {
   nombreNotations       Int                     @default(0)
   penaliteCumulee       Float                   @default(0)
   actif                 Boolean                 @default(true)
+  // Compteur a vie des annulations tardives (< 2h avant le depart) en tant
+  // que passager -- 1re annulation tardive tolerée, la 2e (et suivantes)
+  // declenche suspenduJusqua (voir TrajetsService.annulerReservation).
+  annulationsTardives   Int                     @default(0)
+  // Bannissement temporaire reel (pas juste une baisse de note) : tant que
+  // cette date est dans le futur, JwtStrategy et AuthService.verifyOtp
+  // refusent l'acces. Remis a null par un admin via reactiverCompte (voir
+  // UsersService) en cas de recours.
+  suspenduJusqua        DateTime?
   createdAt             DateTime                @default(now())
   // Universite de l'etudiant, renseignee une fois (premiere connexion ou
   // "Mes informations"), reutilisee comme destination par defaut sur
@@ -47,6 +56,44 @@ model Utilisateur {
   notationsRecues       Notation[]              @relation("NotationsRecues")
   signalementsEmis      Signalement[]           @relation("SignalementsEmis")
   signalementsRecus     Signalement[]           @relation("SignalementsRecus")
+  appareilsPush         AppareilPush[]
+  messagesSupport       MessageSupport[]
+}
+
+// Canal de contact utilisateur -> administration. Volontairement en base
+// plutot qu'un simple lien mailto : c'est le seul recours d'un compte
+// suspendu automatiquement (voir §8.2), il doit donc rester accessible
+// depuis l'app et laisser une trace consultable dans le back-office.
+model MessageSupport {
+  id          String      @id @default(cuid())
+  userId      String
+  utilisateur Utilisateur @relation(fields: [userId], references: [id])
+  contenu     String
+  statut      String      @default("ouvert")
+  // Reponse de l'administration, visible par l'utilisateur dans l'app.
+  reponse     String?
+  createdAt   DateTime    @default(now())
+  repondueLe  DateTime?
+
+  @@index([statut, createdAt])
+}
+
+// Un utilisateur peut etre connecte sur plusieurs appareils, et un meme
+// appareil peut changer de token (reinstallation, mise a jour). D'ou une
+// table dediee plutot qu'un champ sur Utilisateur : elle permet aussi de
+// supprimer le token A LA DECONNEXION -- sans ca, la personne suivante a
+// utiliser le telephone recevrait les notifications du compte precedent.
+model AppareilPush {
+  id           String      @id @default(cuid())
+  userId       String
+  utilisateur  Utilisateur @relation(fields: [userId], references: [id])
+  // Token Expo ("ExponentPushToken[...]"). Unique : un meme appareil ne doit
+  // exister qu'une fois, et s'il change de compte il bascule simplement de
+  // userId (voir NotificationsService.enregistrerAppareil).
+  token        String      @unique
+  plateforme   String
+  createdAt    DateTime    @default(now())
+  dernierUsage DateTime    @updatedAt
 }
 
 model DocumentsConducteur {
@@ -116,7 +163,11 @@ model Trajet {
   pointDeRdv   PointInteret @relation(fields: [pointDeRdvId], references: [id])
   heure        DateTime
   places       Int
-  prixTotal    Float
+  // Montant fixe du a par CHAQUE passager (remplace l'ancien "prixTotal" qui
+  // etait divise dynamiquement entre les reservants) -- le prix annonce ne
+  // bouge donc plus jamais, ni quand un passager rejoint, ni quand il annule.
+  // Meme semantique que Demande.cotisation, voir cahier des charges §6.
+  cotisation   Float
   mode         String       @default("B")
   statut       String       @default("ouvert")
   rappel2hEnvoye Boolean    @default(false)

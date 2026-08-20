@@ -16,6 +16,8 @@ interface FakeUser {
   telephone: string;
   role: string;
   nom: string | null;
+  actif?: boolean;
+  suspenduJusqua?: Date | null;
 }
 
 interface FakeAdminUser {
@@ -76,6 +78,7 @@ describe('AuthService', () => {
         telephone: phone,
         role: 'etudiant',
         nom: null,
+        actif: true,
       });
 
       const result = await service.verifyOtp(phone, code);
@@ -110,6 +113,7 @@ describe('AuthService', () => {
         telephone: phone,
         role: 'etudiant',
         nom: null,
+        actif: true,
       });
       const realCode = requestAndCaptureCode(phone);
       await expect(service.verifyOtp(phone, realCode)).resolves.toBeDefined();
@@ -120,6 +124,46 @@ describe('AuthService', () => {
         service.verifyOtp('+2250700000003', '123456'),
       ).rejects.toThrow(UnauthorizedException);
       expect(upsertMock).not.toHaveBeenCalled();
+    });
+
+    it('throws UnauthorizedException when the account was deactivated by an admin', async () => {
+      const phone = '+2250700000005';
+      const code = requestAndCaptureCode(phone);
+      upsertMock.mockResolvedValueOnce({
+        id: 'user-3',
+        telephone: phone,
+        role: 'etudiant',
+        nom: null,
+        actif: false,
+      });
+
+      await expect(service.verifyOtp(phone, code)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(signAsyncMock).not.toHaveBeenCalled();
+    });
+
+    // Contrairement a un compte desactive, un compte suspendu DOIT pouvoir se
+    // connecter : c'est la seule facon d'atteindre le formulaire de contact et
+    // de contester la sanction automatique. Le bridage se fait ensuite route
+    // par route dans JwtAuthGuard.
+    it('issues a token for a suspended account and reports the suspension', async () => {
+      const phone = '+2250700000006';
+      const code = requestAndCaptureCode(phone);
+      const suspenduJusqua = new Date(Date.now() + 60 * 1000);
+      upsertMock.mockResolvedValueOnce({
+        id: 'user-4',
+        telephone: phone,
+        role: 'etudiant',
+        nom: null,
+        actif: true,
+        suspenduJusqua,
+      });
+
+      const result = await service.verifyOtp(phone, code);
+
+      expect(signAsyncMock).toHaveBeenCalled();
+      expect(result.user.suspenduJusqua).toEqual(suspenduJusqua);
     });
 
     it('throws UnauthorizedException when the code has expired', async () => {

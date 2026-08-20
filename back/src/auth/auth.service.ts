@@ -10,7 +10,13 @@ interface PendingOtp {
 
 export interface VerifyOtpResult {
   accessToken: string;
-  user: { id: string; telephone: string; role: string; nom: string | null };
+  user: {
+    id: string;
+    telephone: string;
+    role: string;
+    nom: string | null;
+    suspenduJusqua: Date | null;
+  };
 }
 
 export interface LoginAdminResult {
@@ -55,12 +61,12 @@ export class AuthService {
     if (!pending || Date.now() > pending.expiresAt) {
       this.otpStore.delete(phone);
       throw new UnauthorizedException(
-        'Code expire ou introuvable, demandez un nouveau code',
+        'Ce code a expiré ou est introuvable. Demande un nouveau code.',
       );
     }
 
     if (pending.code !== code) {
-      throw new UnauthorizedException('Code incorrect');
+      throw new UnauthorizedException('Code incorrect.');
     }
 
     this.otpStore.delete(phone);
@@ -71,6 +77,19 @@ export class AuthService {
       create: { telephone: phone, role: 'etudiant' },
     });
 
+    // Rejet a la connexion elle-meme (en plus de JwtStrategy, qui couvre les
+    // tokens deja emis) -- message clair immediatement plutot qu'un 401
+    // generique sur le premier appel suivant. Sans la verification de "actif",
+    // la desactivation d'un compte depuis le dashboard admin n'avait aucun
+    // effet : le champ n'etait qu'ecrit puis affiche, jamais applique.
+    if (!user.actif) {
+      throw new UnauthorizedException('Ton compte a été désactivé.');
+    }
+
+    // Un compte SUSPENDU obtient volontairement un token : il en a besoin pour
+    // atteindre le formulaire de contact et contester. Toutes les autres
+    // routes lui restent fermees par JwtAuthGuard. Refuser la connexion, comme
+    // on le faisait avant, enfermait la personne trois semaines sans recours.
     const accessToken = await this.jwt.signAsync({
       sub: user.id,
       role: user.role,
@@ -78,7 +97,13 @@ export class AuthService {
 
     return {
       accessToken,
-      user: { id: user.id, telephone: phone, role: user.role, nom: user.nom },
+      user: {
+        id: user.id,
+        telephone: phone,
+        role: user.role,
+        nom: user.nom,
+        suspenduJusqua: user.suspenduJusqua,
+      },
     };
   }
 
@@ -98,7 +123,7 @@ export class AuthService {
       !passwordMatches ||
       user.role !== 'admin'
     ) {
-      throw new UnauthorizedException('Identifiants incorrects');
+      throw new UnauthorizedException('Identifiants incorrects.');
     }
 
     const accessToken = await this.jwt.signAsync({

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { MessagerieService } from './messagerie.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('MessagerieService', () => {
   let service: MessagerieService;
@@ -15,7 +16,12 @@ describe('MessagerieService', () => {
   let messageFindManyMock: jest.Mock;
   let messageDeleteManyMock: jest.Mock;
 
+  // Les notifications sont un effet de bord : les tests verifient le
+  // comportement metier, pas les envois (couverts par notifications.service.spec).
+  const notificationsMock = { envoyer: jest.fn().mockResolvedValue(undefined) };
+
   beforeEach(async () => {
+    notificationsMock.envoyer.mockClear();
     trajetFindUniqueMock = jest.fn();
     reservationFindFirstMock = jest.fn();
     messageCreateMock = jest.fn();
@@ -25,11 +31,19 @@ describe('MessagerieService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         MessagerieService,
+        { provide: NotificationsService, useValue: notificationsMock },
         {
           provide: PrismaService,
           useValue: {
             trajet: { findUnique: trajetFindUniqueMock },
-            reservation: { findFirst: reservationFindFirstMock },
+            reservation: {
+              findFirst: reservationFindFirstMock,
+              // envoyerMessage liste les destinataires de la notification.
+              findMany: jest.fn().mockResolvedValue([]),
+            },
+            utilisateur: {
+              findUnique: jest.fn().mockResolvedValue({ nom: 'Kone', prenom: null }),
+            },
             message: {
               create: messageCreateMock,
               findMany: messageFindManyMock,
