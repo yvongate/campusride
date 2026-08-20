@@ -98,7 +98,7 @@ export default function DemandesConducteurTable() {
         rowKey="id"
         loading={loading}
         dataSource={demandes}
-        pagination={false}
+        pagination={{ pageSize: 10 }}
         columns={[
           {
             title: 'Étudiant',

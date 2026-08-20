@@ -5,7 +5,8 @@ import { getDisplayName } from '../utils/displayName';
 
 const ROLE_LABELS: Record<string, string> = {
   etudiant: 'Étudiant',
-  'les deux': 'Conducteur',
+  'les deux': 'Étudiant + conducteur',
+  chauffeur: 'Conducteur (non étudiant)',
 };
 
 export default function ComptesPage() {

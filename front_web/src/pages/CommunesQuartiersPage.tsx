@@ -98,7 +98,7 @@ export default function CommunesQuartiersPage() {
         rowKey="id"
         loading={loading}
         dataSource={communes}
-        pagination={false}
+        pagination={{ pageSize: 10 }}
         columns={[
           { title: 'Nom', dataIndex: 'nom' },
           { title: 'Ville', dataIndex: 'ville' },
@@ -144,7 +144,7 @@ export default function CommunesQuartiersPage() {
         rowKey="id"
         loading={loading}
         dataSource={quartiers}
-        pagination={false}
+        pagination={{ pageSize: 10 }}
         columns={[
           { title: 'Nom', dataIndex: 'nom' },
           {

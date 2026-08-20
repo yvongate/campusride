@@ -83,7 +83,7 @@ export default function UniversitesPage() {
         rowKey="id"
         loading={loading}
         dataSource={universites}
-        pagination={false}
+        pagination={{ pageSize: 20 }}
         columns={[
           { title: 'Nom', dataIndex: 'nom' },
           { title: 'Commune', dataIndex: 'commune' },

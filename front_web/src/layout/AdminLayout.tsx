@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { key: '/points-interet', label: "Points d'intérêt" },
   { key: '/signalements', label: 'Signalements' },
   { key: '/comptes', label: 'Comptes' },
+  { key: '/support', label: 'Support' },
 ];
 
 // Sidebar de UI_inspo (écran 19 -- Tableau de bord administrateur) :

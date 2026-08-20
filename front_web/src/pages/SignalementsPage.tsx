@@ -56,7 +56,7 @@ export default function SignalementsPage() {
         rowKey="id"
         loading={loading}
         dataSource={signalements}
-        pagination={false}
+        pagination={{ pageSize: 10 }}
         columns={[
           {
             title: 'Type',

@@ -4,6 +4,7 @@ import DashboardPage from './pages/DashboardPage';
 import ConducteursPage from './pages/ConducteursPage';
 import SignalementsPage from './pages/SignalementsPage';
 import ComptesPage from './pages/ComptesPage';
+import SupportPage from './pages/SupportPage';
 import UniversitesPage from './pages/UniversitesPage';
 import CommunesQuartiersPage from './pages/CommunesQuartiersPage';
 import PointsInteretPage from './pages/PointsInteretPage';
@@ -67,6 +68,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <ComptesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/support"
+          element={
+            <ProtectedRoute>
+              <SupportPage />
             </ProtectedRoute>
           }
         />

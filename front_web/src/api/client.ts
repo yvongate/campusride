@@ -230,3 +230,34 @@ export async function desactiverCompte(id: string): Promise<void> {
 export async function reactiverCompte(id: string): Promise<void> {
   await apiClient.patch(`/admin/utilisateurs/${id}/reactiver`);
 }
+
+export interface MessageSupport {
+  id: string;
+  contenu: string;
+  statut: string;
+  reponse: string | null;
+  createdAt: string;
+  repondueLe: string | null;
+  utilisateur: {
+    id: string;
+    nom: string | null;
+    prenom: string | null;
+    telephone: string | null;
+    // Permet de lever la suspension directement depuis la reponse : la
+    // plupart des messages viennent justement de comptes sanctionnes.
+    suspenduJusqua: string | null;
+    actif: boolean;
+  };
+}
+
+export async function listMessagesSupport(): Promise<MessageSupport[]> {
+  const res = await apiClient.get<MessageSupport[]>('/admin/support');
+  return res.data;
+}
+
+export async function repondreMessageSupport(
+  id: string,
+  reponse: string,
+): Promise<void> {
+  await apiClient.patch(`/admin/support/${id}/repondre`, { reponse });
+}

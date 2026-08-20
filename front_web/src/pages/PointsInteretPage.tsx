@@ -82,7 +82,7 @@ export default function PointsInteretPage() {
         rowKey="id"
         loading={loading}
         dataSource={pointsInteret}
-        pagination={false}
+        pagination={{ pageSize: 20 }}
         columns={[
           { title: 'Nom', dataIndex: 'nom' },
           { title: 'Type', dataIndex: 'type' },
