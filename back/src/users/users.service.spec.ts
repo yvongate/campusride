@@ -14,6 +14,7 @@ describe('UsersService', () => {
   let updateUtilisateurMock: jest.Mock;
   let findManyUtilisateurMock: jest.Mock;
   let findUniqueUtilisateurMock: jest.Mock;
+  let countUtilisateurMock: jest.Mock;
   let findUniqueUniversiteMock: jest.Mock;
   let findFirstConducteurMock: jest.Mock;
   let findManyConducteurMock: jest.Mock;
@@ -31,6 +32,7 @@ describe('UsersService', () => {
     updateUtilisateurMock = jest.fn();
     findManyUtilisateurMock = jest.fn();
     findUniqueUtilisateurMock = jest.fn();
+    countUtilisateurMock = jest.fn().mockResolvedValue(0);
     findUniqueUniversiteMock = jest.fn();
     findFirstConducteurMock = jest.fn();
     findManyConducteurMock = jest.fn();
@@ -51,6 +53,7 @@ describe('UsersService', () => {
               update: updateUtilisateurMock,
               findMany: findManyUtilisateurMock,
               findUnique: findUniqueUtilisateurMock,
+              count: countUtilisateurMock,
             },
             universite: {
               findUnique: findUniqueUniversiteMock,
@@ -516,24 +519,58 @@ describe('UsersService', () => {
   });
 
   describe('listerComptes', () => {
-    it('excludes admin accounts', async () => {
-      findManyUtilisateurMock.mockResolvedValueOnce([]);
+    beforeEach(() => {
+      countUtilisateurMock.mockResolvedValue(0);
+      findManyUtilisateurMock.mockResolvedValue([]);
+    });
 
-      await service.listerComptes();
+    it('excludes admin accounts and paginates', async () => {
+      await service.listerComptes({});
 
-      expect(findManyUtilisateurMock).toHaveBeenCalledWith({
-        where: { role: { not: 'admin' } },
-        select: {
-          id: true,
-          nom: true,
-          prenom: true,
-          telephone: true,
-          role: true,
-          note: true,
-          actif: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+      expect(findManyUtilisateurMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { role: { not: 'admin' } },
+          orderBy: { createdAt: 'desc' },
+          skip: 0,
+          take: 20,
+        }),
+      );
+    });
+
+    it('calcule le decalage a partir de la page demandee', async () => {
+      await service.listerComptes({ page: 3, limit: 10 });
+
+      expect(findManyUtilisateurMock).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 20, take: 10 }),
+      );
+    });
+
+    it('cherche sur le nom, le prenom et le telephone', async () => {
+      await service.listerComptes({ recherche: '  Kouassi ' });
+
+      expect(findManyUtilisateurMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [
+              { nom: { contains: 'Kouassi', mode: 'insensitive' } },
+              { prenom: { contains: 'Kouassi', mode: 'insensitive' } },
+              { telephone: { contains: 'Kouassi' } },
+            ],
+          }),
+        }),
+      );
+    });
+
+    // Le total doit porter sur le MEME filtre que la page, sinon la
+    // pagination annonce un nombre de pages sans rapport avec la recherche.
+    it('compte avec le meme filtre que la page', async () => {
+      countUtilisateurMock.mockResolvedValueOnce(7);
+
+      const resultat = await service.listerComptes({ recherche: 'Yao' });
+
+      const filtreListe = findManyUtilisateurMock.mock.calls[0][0].where;
+      expect(countUtilisateurMock).toHaveBeenCalledWith({ where: filtreListe });
+      expect(resultat.total).toBe(7);
     });
   });
 

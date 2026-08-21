@@ -226,20 +226,52 @@ export class UsersService {
     return refusee;
   }
 
-  async listerComptes() {
-    return this.prisma.utilisateur.findMany({
-      where: { role: { not: 'admin' } },
-      select: {
-        id: true,
-        nom: true,
-        prenom: true,
-        telephone: true,
-        role: true,
-        note: true,
-        actif: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  // Paginee cote SERVEUR. Auparavant la methode renvoyait tous les comptes et
+  // seul le tableau React paginait : avec un jeu de demonstration couvrant
+  // toutes les universites, cela representait plus de 12 000 lignes en une
+  // seule reponse, soit plusieurs secondes d'ecran blanc a l'ouverture.
+  async listerComptes(params: {
+    page?: number;
+    limit?: number;
+    recherche?: string;
+  }) {
+    const page = params.page && params.page > 0 ? params.page : 1;
+    const limit = params.limit && params.limit > 0 ? params.limit : 20;
+    const recherche = params.recherche?.trim();
+
+    const where = {
+      role: { not: 'admin' },
+      ...(recherche
+        ? {
+            OR: [
+              { nom: { contains: recherche, mode: 'insensitive' as const } },
+              { prenom: { contains: recherche, mode: 'insensitive' as const } },
+              { telephone: { contains: recherche } },
+            ],
+          }
+        : {}),
+    };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.utilisateur.findMany({
+        where,
+        select: {
+          id: true,
+          nom: true,
+          prenom: true,
+          telephone: true,
+          role: true,
+          note: true,
+          actif: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.utilisateur.count({ where }),
+    ]);
+
+    return { items, total, page, limit };
   }
 
   private async changerStatutCompte(

@@ -218,8 +218,27 @@ export interface Compte {
   actif: boolean;
 }
 
-export async function listComptes(): Promise<Compte[]> {
-  const res = await apiClient.get<Compte[]>('/admin/utilisateurs');
+export interface PageComptes {
+  items: Compte[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+// Pagine cote serveur : le jeu de demonstration couvre toutes les universites
+// et depasse les 12 000 comptes, impossible a charger d'un bloc.
+export async function listComptes(params: {
+  page: number;
+  limit: number;
+  recherche?: string;
+}): Promise<PageComptes> {
+  const res = await apiClient.get<PageComptes>('/admin/utilisateurs', {
+    params: {
+      page: params.page,
+      limit: params.limit,
+      ...(params.recherche ? { recherche: params.recherche } : {}),
+    },
+  });
   return res.data;
 }
 

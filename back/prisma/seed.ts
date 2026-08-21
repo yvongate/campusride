@@ -7,6 +7,7 @@ import 'dotenv/config';
 import bcryptjs from 'bcryptjs';
 import { PrismaClient } from '../generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { creneau, seedDemoVolume } from './seed-volume';
 
 const connectionString =
   process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -1011,27 +1012,6 @@ interface DemoDemande {
 // d'expiration basculent en "annule"/"expiree" tout ce dont l'heure est
 // passee -- l'app se retrouvait vide. Re-lancer le seed suffit desormais a
 // obtenir un jeu coherent, quel que soit le jour.
-// Marge volontairement plus large que le minimum metier de 1h15 : un creneau
-// cree pile a 1h15 expirerait au bout de 75 minutes, donc potentiellement en
-// pleine demonstration. Avec 3 heures, un seed lance le matin tient toute la
-// matinee et l'apres-midi sans qu'aucun trajet ne disparaisse sous les yeux du
-// jury.
-const MARGE_DEMO_MS = 3 * 60 * 60 * 1000;
-
-function creneau(joursApres: 0 | 1, heures: number, minutes = 0): Date {
-  const date = new Date();
-  date.setDate(date.getDate() + joursApres);
-  date.setHours(heures, minutes, 0, 0);
-  // Un creneau "aujourd'hui" deja passe, ou trop proche pour rester visible
-  // assez longtemps, bascule a demain -- sinon le seed creerait des trajets
-  // que le cron annulerait dans la foulee. Les creneaux "demain" ne sont
-  // jamais concernes : ils sont toujours a plus de 3 heures.
-  if (joursApres === 0 && date.getTime() - Date.now() < MARGE_DEMO_MS) {
-    date.setDate(date.getDate() + 1);
-  }
-  return date;
-}
-
 const DEMO_TRAJETS: DemoTrajet[] = [
   {
     communeDepart: 'Yopougon',
@@ -1287,6 +1267,9 @@ async function main() {
   await seedReferentiel();
   await seedAdmin();
   await seedDemo();
+  // Apres seedDemo : celui-ci met en scene des etats precis sur des comptes
+  // nommes, le seed en volume ne fait qu'eviter les ecrans vides ailleurs.
+  await seedDemoVolume(prisma);
 }
 
 main()

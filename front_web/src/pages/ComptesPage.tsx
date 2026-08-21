@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { App, Button, Tag, Table } from 'antd';
+import { App, Button, Input, Space, Tag, Table } from 'antd';
 import { desactiverCompte, listComptes, reactiverCompte, type Compte } from '../api/client';
 import { getDisplayName } from '../utils/displayName';
 
@@ -9,8 +9,16 @@ const ROLE_LABELS: Record<string, string> = {
   chauffeur: 'Conducteur (non étudiant)',
 };
 
+const TAILLE_PAGE = 20;
+
 export default function ComptesPage() {
   const [comptes, setComptes] = useState<Compte[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  // Terme applique a la requete, distinct de la saisie en cours : sans ca,
+  // chaque frappe declencherait un appel serveur.
+  const [recherche, setRecherche] = useState('');
+  const [saisie, setSaisie] = useState('');
   const [loading, setLoading] = useState(true);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const { message } = App.useApp();
@@ -18,20 +26,32 @@ export default function ComptesPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setComptes(await listComptes());
+      const resultat = await listComptes({
+        page,
+        limit: TAILLE_PAGE,
+        recherche: recherche || undefined,
+      });
+      setComptes(resultat.items);
+      setTotal(resultat.total);
     } catch {
       message.error('Impossible de charger les comptes');
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [message, page, recherche]);
 
   useEffect(() => {
-    // Chargement classique au montage (cf. react.dev/learn/you-might-not-need-an-effect) --
-    // pas de boucle de re-render, un seul fetch initial, pas de framework a chargeurs ici.
+    // Rechargement a chaque changement de page ou de recherche.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+
+  function lancerRecherche() {
+    // Retour a la premiere page : rester page 12 sur un nouveau filtre qui ne
+    // compte que 3 resultats afficherait un tableau vide.
+    setPage(1);
+    setRecherche(saisie.trim());
+  }
 
   async function handleToggle(compte: Compte) {
     setPendingId(compte.id);
@@ -54,11 +74,30 @@ export default function ComptesPage() {
   return (
     <div>
       <h3>Comptes</h3>
+      <Space.Compact style={{ marginBottom: 16, width: 360, maxWidth: '100%' }}>
+        <Input
+          placeholder="Nom, prénom ou téléphone"
+          value={saisie}
+          allowClear
+          onChange={(e) => setSaisie(e.target.value)}
+          onPressEnter={lancerRecherche}
+        />
+        <Button type="primary" onClick={lancerRecherche}>
+          Rechercher
+        </Button>
+      </Space.Compact>
       <Table<Compte>
         rowKey="id"
         loading={loading}
         dataSource={comptes}
-        pagination={{ pageSize: 20 }}
+        pagination={{
+          current: page,
+          pageSize: TAILLE_PAGE,
+          total,
+          showSizeChanger: false,
+          showTotal: (nombre) => `${nombre} comptes`,
+          onChange: setPage,
+        }}
         columns={[
           {
             title: 'Nom',
