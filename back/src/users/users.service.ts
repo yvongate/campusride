@@ -66,6 +66,26 @@ export class UsersService {
       }
     }
 
+    // Chemin inverse. "chauffeur" signifie "pas etudiant, donc aucune
+    // universite de rattachement" : declarer une universite contredit ce
+    // choix, on rectifie le role au lieu de garder un compte incoherent.
+    // Sans ca, "je ne suis pas etudiant" etait un aller sans retour -- un
+    // seul appui de trop enfermait le compte dans un accueil sans le moindre
+    // trajet. Un chauffeur DEJA valide devient "les deux" et non "etudiant",
+    // sinon il perdrait au passage son droit de publier.
+    else if (data.universiteId) {
+      const utilisateur = await this.prisma.utilisateur.findUniqueOrThrow({
+        where: { id: userId },
+        select: { role: true },
+      });
+      if (utilisateur.role === 'chauffeur') {
+        const documentsValides = await this.prisma.documentsConducteur.findFirst(
+          { where: { userId, statut: 'valide' }, select: { id: true } },
+        );
+        updateData.role = documentsValides ? 'les deux' : 'etudiant';
+      }
+    }
+
     return this.prisma.utilisateur.update({
       where: { id: userId },
       data: updateData,

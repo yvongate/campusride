@@ -27,7 +27,7 @@ describe('UsersService', () => {
 
   beforeEach(async () => {
     notificationsMock.envoyer.mockClear();
-    findUniqueOrThrowMock = jest.fn();
+    findUniqueOrThrowMock = jest.fn().mockResolvedValue({ role: 'etudiant' });
     updateUtilisateurMock = jest.fn();
     findManyUtilisateurMock = jest.fn();
     findUniqueUtilisateurMock = jest.fn();
@@ -178,6 +178,51 @@ describe('UsersService', () => {
       expect(updateUtilisateurMock).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: {},
+      });
+    });
+
+    // Retour arriere. Sans lui, "je ne suis pas etudiant" etait definitif :
+    // un seul appui de trop et le compte n'avait plus jamais de feed.
+    it("repasse un chauffeur non valide en etudiant s'il declare une universite", async () => {
+      findUniqueUniversiteMock.mockResolvedValueOnce({ id: 'univ-1' });
+      findUniqueOrThrowMock.mockResolvedValueOnce({ role: 'chauffeur' });
+      findFirstConducteurMock.mockResolvedValueOnce(null);
+      updateUtilisateurMock.mockResolvedValueOnce({ id: 'user-1' });
+
+      await service.updateProfil('user-1', { universiteId: 'univ-1' });
+
+      expect(updateUtilisateurMock).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { universiteId: 'univ-1', role: 'etudiant' },
+      });
+    });
+
+    // Un chauffeur deja valide ne doit pas perdre son droit de publier en
+    // declarant qu'il est aussi etudiant : il devient "les deux".
+    it("fait passer un chauffeur deja valide a les deux, sans lui retirer le droit de publier", async () => {
+      findUniqueUniversiteMock.mockResolvedValueOnce({ id: 'univ-1' });
+      findUniqueOrThrowMock.mockResolvedValueOnce({ role: 'chauffeur' });
+      findFirstConducteurMock.mockResolvedValueOnce({ id: 'doc-1' });
+      updateUtilisateurMock.mockResolvedValueOnce({ id: 'user-1' });
+
+      await service.updateProfil('user-1', { universiteId: 'univ-1' });
+
+      expect(updateUtilisateurMock).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { universiteId: 'univ-1', role: 'les deux' },
+      });
+    });
+
+    it("ne touche pas au role d'un etudiant qui change d'universite", async () => {
+      findUniqueUniversiteMock.mockResolvedValueOnce({ id: 'univ-1' });
+      findUniqueOrThrowMock.mockResolvedValueOnce({ role: 'etudiant' });
+      updateUtilisateurMock.mockResolvedValueOnce({ id: 'user-1' });
+
+      await service.updateProfil('user-1', { universiteId: 'univ-1' });
+
+      expect(updateUtilisateurMock).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { universiteId: 'univ-1' },
       });
     });
   });

@@ -4,7 +4,7 @@ import { AxiosError } from 'axios';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, fonts } from '../theme';
-import { getProfile, listUniversites, updateNom, updateUniversite, Profile, Universite } from '../api/client';
+import { declarerChauffeur, getProfile, listUniversites, updateNom, updateUniversite, Profile, Universite } from '../api/client';
 import { Button } from '../components/Button';
 import { ErrorState } from '../components/ErrorState';
 import { Field, Input } from '../components/Field';
@@ -48,6 +48,7 @@ export default function MesInformationsScreen({ navigation }: Props) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [universiteSaved, setUniversiteSaved] = useState(false);
+  const [chauffeurPending, setChauffeurPending] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -85,6 +86,26 @@ export default function MesInformationsScreen({ navigation }: Props) {
       setUniversiteSaved(true);
     } catch (e) {
       showError(extractErrorMessage(e, "L'enregistrement a échoué."));
+    }
+  }
+
+  // Second point d'entree du choix "je ne suis pas etudiant". Il n'existait
+  // qu'a l'inscription (ChoisirUniversiteScreen) : quiconque avait touche
+  // "Passer pour l'instant" ne pouvait plus jamais se declarer chauffeur, et
+  // l'accueil lui reclamait une universite indefiniment. Le choix est
+  // reversible : rechoisir une universite ici restaure le role etudiant
+  // (voir UsersService.updateProfil).
+  async function handleDeclarerChauffeur() {
+    setChauffeurPending(true);
+    try {
+      await declarerChauffeur();
+      setProfile((current) =>
+        current ? { ...current, role: 'chauffeur' } : current,
+      );
+    } catch (e) {
+      showError(extractErrorMessage(e, "L'enregistrement a échoué."));
+    } finally {
+      setChauffeurPending(false);
     }
   }
 
@@ -171,6 +192,20 @@ export default function MesInformationsScreen({ navigation }: Props) {
           />
           {universiteSaved ? (
             <Text style={styles.success}>Université mise à jour ✓</Text>
+          ) : null}
+          {profile.role === 'chauffeur' ? (
+            <MutedText style={styles.hint}>
+              Tu es inscrit comme chauffeur, donc rattaché à aucune université.
+              Choisis-en une ci-dessus si tu es aussi étudiant.
+            </MutedText>
+          ) : profile.role === 'etudiant' ? (
+            <Button
+              title="Je ne suis pas étudiant, je suis chauffeur"
+              variant="ghost"
+              block
+              loading={chauffeurPending}
+              onPress={() => void handleDeclarerChauffeur()}
+            />
           ) : null}
         </View>
 

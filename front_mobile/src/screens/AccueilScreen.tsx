@@ -168,6 +168,7 @@ export default function AccueilScreen({ navigation }: Props) {
   const [annulerPendingId, setAnnulerPendingId] = useState<string | null>(null);
   const [monId, setMonId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [conducteurStatut, setConducteurStatut] = useState<string | null>(null);
 
   useEffect(() => {
     getProfile()
@@ -179,6 +180,7 @@ export default function AccueilScreen({ navigation }: Props) {
         setUniversiteNom(profile.universite?.nom ?? null);
         setMonId(profile.id);
         setRole(profile.role);
+        setConducteurStatut(profile.conducteurStatut);
       })
       .catch(() => undefined)
       .finally(() => setProfileLoaded(true));
@@ -510,6 +512,28 @@ export default function AccueilScreen({ navigation }: Props) {
         ) : null}
       </View>
 
+      {/* Role "les deux" : etudiant ET conducteur valide. Cette personne
+          alterne selon les jours -- passagere le matin, conductrice le soir.
+          Un accueil purement passager l'obligeait a passer par le Profil,
+          un ecran de reglages, pour la moitie de ses usages. Le flux passager
+          reste dessous : on ajoute une bascule, on ne remplace rien. */}
+      {conducteurStatut === 'valide' && role !== 'chauffeur' ? (
+        <View style={styles.actionsConducteur}>
+          <Button
+            title="Publier un trajet"
+            variant="secondary"
+            style={styles.actionConducteur}
+            onPress={() => navigation.navigate('PublierTrajet')}
+          />
+          <Button
+            title="Voir les demandes"
+            variant="secondary"
+            style={styles.actionConducteur}
+            onPress={() => navigation.navigate('DemandesDisponibles')}
+          />
+        </View>
+      ) : null}
+
       {notationsEnAttente.length > 0 ? (
         <View style={styles.rappelBanner}>
           <TouchableOpacity
@@ -772,21 +796,63 @@ export default function AccueilScreen({ navigation }: Props) {
           <ActivityIndicator color={colors.accent} style={styles.loader} />
         </View>
       ) : role === 'chauffeur' ? (
-        // Un chauffeur (pas etudiant) n'a pas d'universite -- cet ecran est
-        // pense pour parcourir des trajets/demandes en tant que passager, ce
-        // qui ne le concerne pas. Ses actions (publier, accepter des
-        // demandes) sont sur Profil, jamais bloquees par une universite
-        // manquante ici.
-        <View style={styles.body}>
-          <MutedText style={styles.empty}>
-            Tu es inscrit comme chauffeur -- retrouve tes trajets et les
-            demandes à accepter depuis ton profil.
-          </MutedText>
-          <Button
-            title="Aller sur mon profil"
-            block
-            onPress={() => navigation.navigate('Profil')}
-          />
+        // Un chauffeur (pas etudiant) n'a pas d'universite : le flux de cet
+        // ecran, pense pour chercher une place en tant que passager, ne le
+        // concerne pas. On lui affiche SES actions a la place -- et surtout on
+        // les fait dependre de conducteurStatut : renvoyer un nouvel inscrit
+        // vers "tes trajets et les demandes a accepter" lui promettait un
+        // acces qu'il n'a pas encore, tant que ses documents ne sont pas
+        // valides.
+        <View style={[styles.body, styles.bodyChauffeur]}>
+          {conducteurStatut === 'valide' ? (
+            <>
+              <MutedText style={styles.empty}>
+                Publie un trajet ou accepte un groupe d'étudiants qui cherche
+                un conducteur.
+              </MutedText>
+              <Button
+                title="Publier un trajet"
+                block
+                onPress={() => navigation.navigate('PublierTrajet')}
+              />
+              <Button
+                title="Voir les demandes à accepter"
+                variant="secondary"
+                block
+                onPress={() => navigation.navigate('DemandesDisponibles')}
+              />
+            </>
+          ) : conducteurStatut === 'en attente' ? (
+            <MutedText style={styles.empty}>
+              Tes documents sont en cours de vérification. Dès qu'un
+              administrateur les valide, tu pourras publier des trajets et
+              accepter des demandes. Tu recevras une notification.
+            </MutedText>
+          ) : conducteurStatut === 'refuse' ? (
+            <>
+              <MutedText style={styles.empty}>
+                Ton dossier n'a pas été validé. Tu peux renvoyer des documents
+                plus lisibles pour être vérifié à nouveau.
+              </MutedText>
+              <Button
+                title="Renvoyer mes documents"
+                block
+                onPress={() => navigation.navigate('InscriptionConducteur')}
+              />
+            </>
+          ) : (
+            <>
+              <MutedText style={styles.empty}>
+                Pour commencer à conduire, envoie ton permis et le matricule de
+                ton véhicule. Un administrateur vérifie ton dossier sous 48h.
+              </MutedText>
+              <Button
+                title="Envoyer mes documents"
+                block
+                onPress={() => navigation.navigate('InscriptionConducteur')}
+              />
+            </>
+          )}
         </View>
       ) : !universiteId ? (
         <View style={styles.body}>
@@ -925,6 +991,21 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
     position: 'relative',
+  },
+  bodyChauffeur: {
+    gap: 10,
+  },
+  actionsConducteur: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 20,
+    marginTop: 12,
+  },
+  actionConducteur: {
+    // Padding reduit : deux boutons cote a cote, le libelle doit tenir sur
+    // une ligne meme sur les petits ecrans.
+    flex: 1,
+    paddingHorizontal: 8,
   },
   loader: {
     marginTop: 24,
