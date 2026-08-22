@@ -27,6 +27,7 @@ import ConnexionScreen from './src/screens/ConnexionScreen';
 import VerificationOtpScreen from './src/screens/VerificationOtpScreen';
 import InscriptionConducteurScreen from './src/screens/InscriptionConducteurScreen';
 import CompleterProfilScreen from './src/screens/CompleterProfilScreen';
+import ChoisirProfilScreen from './src/screens/ChoisirProfilScreen';
 import ChoisirUniversiteScreen from './src/screens/ChoisirUniversiteScreen';
 import MesInformationsScreen from './src/screens/MesInformationsScreen';
 import ParametresScreen from './src/screens/ParametresScreen';
@@ -141,6 +142,7 @@ export default function App() {
             name="CompleterProfil"
             component={CompleterProfilScreen}
           />
+          <Stack.Screen name="ChoisirProfil" component={ChoisirProfilScreen} />
           <Stack.Screen
             name="ChoisirUniversite"
             component={ChoisirUniversiteScreen}

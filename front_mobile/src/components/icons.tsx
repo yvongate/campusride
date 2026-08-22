@@ -65,6 +65,14 @@ export function ChevronLeftIcon({ size = 20, color = '#201e1d' }: IconProps) {
   );
 }
 
+export function ChevronUpIcon({ size = 18, color = '#201e1d' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M18 15l-6-6-6 6" />
+    </Svg>
+  );
+}
+
 export function ChevronDownIcon({ size = 13, color = '#201e1d' }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">

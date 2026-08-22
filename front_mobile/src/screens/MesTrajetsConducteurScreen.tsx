@@ -19,6 +19,7 @@ import { ErrorState } from '../components/ErrorState';
 import { showError } from '../components/Toast';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { SegmentedControl } from '../components/SegmentedControl';
+import { BoutonRemonter, useRemonterEnHaut } from '../components/BoutonRemonter';
 import { Tag } from '../components/Tag';
 import { MutedText } from '../components/Typography';
 
@@ -33,7 +34,13 @@ function extractErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export default function MesTrajetsConducteurScreen({ navigation, route }: Props) {
+// masquerRetour : cet ecran sert aussi de contenu a l'onglet "Trajets" pour
+// un conducteur (voir MesTrajetsScreen), ou aucun retour n'a de sens.
+export default function MesTrajetsConducteurScreen({
+  navigation,
+  route,
+  masquerRetour,
+}: Props & { masquerRetour?: boolean }) {
   const [trajets, setTrajets] = useState<MesTrajetsConducteurTrajet[]>([]);
   // Ouvrable directement sur les trajets termines depuis le menu Profil.
   const tabDemande = route.params?.tab;
@@ -45,6 +52,7 @@ export default function MesTrajetsConducteurScreen({ navigation, route }: Props)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const remonter = useRemonterEnHaut<MesTrajetsConducteurTrajet>();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -86,7 +94,7 @@ export default function MesTrajetsConducteurScreen({ navigation, route }: Props)
     <View style={styles.container}>
       <ScreenHeader
         title="Mes trajets"
-        onBack={() => navigation.goBack()}
+        onBack={masquerRetour ? undefined : () => navigation.goBack()}
         right={
           <Button
             title="+ Publier"
@@ -117,6 +125,9 @@ export default function MesTrajetsConducteurScreen({ navigation, route }: Props)
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <FlatList
+            ref={remonter.listRef}
+            onScroll={remonter.onScroll}
+            scrollEventThrottle={16}
             data={filtered}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
@@ -249,6 +260,8 @@ export default function MesTrajetsConducteurScreen({ navigation, route }: Props)
           />
         </>
       )}
+
+      <BoutonRemonter visible={remonter.visible} onPress={remonter.remonter} />
     </View>
   );
 }

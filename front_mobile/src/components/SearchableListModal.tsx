@@ -3,6 +3,7 @@ import { FlatList, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, fonts } from '../theme';
 import { normalise } from './PickerField';
+import { BoutonRemonter, useRemonterEnHaut } from './BoutonRemonter';
 
 export interface SearchableOption {
   id: string;
@@ -30,6 +31,8 @@ export function SearchableListModal({
 }) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
+
+  const remonter = useRemonterEnHaut<SearchableOption>();
 
   const filtered = useMemo(() => {
     if (!query.trim()) return options;
@@ -63,6 +66,9 @@ export function SearchableListModal({
           autoFocus
         />
         <FlatList
+          ref={remonter.listRef}
+          onScroll={remonter.onScroll}
+          scrollEventThrottle={16}
           data={filtered}
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
@@ -81,6 +87,11 @@ export function SearchableListModal({
               ) : null}
             </TouchableOpacity>
           )}
+        />
+        <BoutonRemonter
+          visible={remonter.visible}
+          onPress={remonter.remonter}
+          bottom={72}
         />
         <TouchableOpacity style={styles.close} onPress={handleClose}>
           <Text style={styles.closeText}>Fermer</Text>

@@ -28,6 +28,7 @@ import { gererSuspension } from '../utils/suspension';
 import { formatPlacesRestantes } from '../utils/places';
 import { getDisplayName } from '../utils/profile';
 import { useRefreshOnForeground } from '../hooks/useRefreshOnForeground';
+import { BoutonRemonter, useRemonterEnHaut } from '../components/BoutonRemonter';
 import { BurgerButton } from '../components/BurgerButton';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
@@ -104,6 +105,7 @@ export default function MesTrajetsPassagerScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const remonter = useRemonterEnHaut<FeedItem>();
 
   const loadAll = useCallback(() => {
     setLoading(true);
@@ -251,6 +253,9 @@ export default function MesTrajetsPassagerScreen({ navigation, route }: Props) {
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <FlatList
+            ref={remonter.listRef}
+            onScroll={remonter.onScroll}
+            scrollEventThrottle={16}
             data={feed}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
@@ -394,6 +399,8 @@ export default function MesTrajetsPassagerScreen({ navigation, route }: Props) {
           />
         </>
       )}
+
+      <BoutonRemonter visible={remonter.visible} onPress={remonter.remonter} />
     </View>
   );
 }

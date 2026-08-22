@@ -10,9 +10,14 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Aide'>;
 
 const SECTIONS: { titre: string; texte: string }[] = [
   {
-    titre: 'Trajet ou demande, quelle différence ?',
+    titre: 'Le badge sur chaque carte',
     texte:
-      "Un trajet est déjà confirmé : un conducteur vérifié a publié son départ, son point de rendez-vous et son prix. Une demande, c'est l'inverse : des étudiants qui vont au même endroit se regroupent d'abord, et un conducteur vient ensuite accepter le groupe.",
+      "Partout dans l'app, tu n'as qu'un seul bouton : « Je participe ». C'est le badge en haut de la carte qui te dit à quoi tu t'engages. « Conducteur confirmé » : un conducteur vérifié a déjà publié ce départ, ta place est réservée immédiatement. « Groupe en formation » : des étudiants qui vont au même endroit se rassemblent, et un conducteur viendra accepter le groupe une fois complet — rien n'est garanti tant que personne n'a accepté.",
+  },
+  {
+    titre: 'Papiers vérifiés',
+    texte:
+      "Ce second badge signifie qu'un administrateur a contrôlé le permis et le matricule du véhicule du conducteur. Aucun trajet n'existe sans cette vérification.",
   },
   {
     titre: 'Créer une demande',

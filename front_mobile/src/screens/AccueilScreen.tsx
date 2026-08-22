@@ -21,6 +21,9 @@ import { colors, fonts, shadows } from '../theme';
 import {
   annulerDemande,
   getProfile,
+  listerDemandesDisponibles,
+  accepterDemande,
+  type DemandeDisponible,
   listCommunes,
   listerDemandes,
   listerMesDemandes,
@@ -42,6 +45,8 @@ import {
 import { formatPlacesRestantes } from '../utils/places';
 import { getDisplayName } from '../utils/profile';
 import { nearestCommune } from '../utils/nearestCommune';
+import { DemandeDisponibleCard } from '../components/DemandeDisponibleCard';
+import { BoutonRemonter, useRemonterEnHaut } from '../components/BoutonRemonter';
 import { getTrajetsIgnores, ignorerTrajet } from '../utils/notationsIgnorees';
 import { gererSuspension } from '../utils/suspension';
 import {
@@ -169,6 +174,16 @@ export default function AccueilScreen({ navigation }: Props) {
   const [monId, setMonId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [conducteurStatut, setConducteurStatut] = useState<string | null>(null);
+  const [demandesAAccepter, setDemandesAAccepter] = useState<DemandeDisponible[]>([]);
+  const [chargementAAccepter, setChargementAAccepter] = useState(false);
+  const [accepterPendingId, setAccepterPendingId] = useState<string | null>(null);
+  const remonterConducteur = useRemonterEnHaut<DemandeDisponible>();
+  // Deux instances distinctes : les deux listes ne s'affichent jamais en meme
+  // temps, mais chacune garde sa propre position de defilement.
+  const remonterFeed = useRemonterEnHaut<FeedItem>();
+  // Menu du "+" pour un compte "les deux" : il peut agir dans les deux sens,
+  // le bouton doit donc lui demander lequel plutot que d'en choisir un.
+  const [menuCreationOuvert, setMenuCreationOuvert] = useState(false);
 
   useEffect(() => {
     getProfile()
@@ -185,6 +200,42 @@ export default function AccueilScreen({ navigation }: Props) {
       .catch(() => undefined)
       .finally(() => setProfileLoaded(true));
   }, []);
+
+  // Vue conducteur : les demandes de SA commune, chargees directement sur
+  // l'accueil. Il n'a pas d'universite, donc aucun filtre dessus -- toutes
+  // les universites de la commune l'interessent.
+  const estConducteur = conducteurStatut === 'valide';
+  const chargerDemandesAAccepter = useCallback(async () => {
+    if (!communeId || !estConducteur) return;
+    setChargementAAccepter(true);
+    try {
+      setDemandesAAccepter(
+        await listerDemandesDisponibles(communeId, universiteId ?? undefined),
+      );
+    } catch {
+      // Silencieux : l'accueil affiche deja d'autres contenus, une erreur
+      // bloquante ici masquerait tout le reste.
+    } finally {
+      setChargementAAccepter(false);
+    }
+  }, [communeId, universiteId, estConducteur]);
+
+  useEffect(() => {
+    void chargerDemandesAAccepter();
+  }, [chargerDemandesAAccepter]);
+
+  async function handleAccepterDemande(demandeId: string) {
+    setAccepterPendingId(demandeId);
+    try {
+      await accepterDemande(demandeId);
+      navigation.navigate('MesTrajetsConducteur');
+    } catch (e) {
+      showError(extractErrorMessage(e, "L'acceptation a échoué."));
+      void chargerDemandesAAccepter();
+    } finally {
+      setAccepterPendingId(null);
+    }
+  }
 
   function handleChoisirUniversite(id: string) {
     const nom = universites.find((u) => u.id === id)?.nom ?? null;
@@ -491,7 +542,18 @@ export default function AccueilScreen({ navigation }: Props) {
           <BurgerButton onPress={() => navigation.navigate('Profil')} />
         </View>
 
-        {universiteId ? (
+        {/* Un conducteur n'a pas d'universite : il ne lui reste que la commune,
+            seule cle de son feed. Elle est pre-remplie depuis sa position et
+            reste modifiable ici, pour aller voir les demandes d'ailleurs. */}
+        {role === 'chauffeur' ? (
+          <View style={styles.compactBar}>
+            <CommuneChip
+              label={communeLabel}
+              options={communes.map((c) => ({ id: c.id, label: c.nom }))}
+              onSelect={setCommuneId}
+            />
+          </View>
+        ) : universiteId ? (
           <View style={styles.compactBar}>
             <CommuneChip
               label={communeLabel}
@@ -519,14 +581,11 @@ export default function AccueilScreen({ navigation }: Props) {
           reste dessous : on ajoute une bascule, on ne remplace rien. */}
       {conducteurStatut === 'valide' && role !== 'chauffeur' ? (
         <View style={styles.actionsConducteur}>
+          {/* "Publier" a quitte cette rangee : il est desormais dans le menu
+              du "+", et l'afficher aux deux endroits n'aurait fait que
+              dupliquer la meme action. */}
           <Button
-            title="Publier un trajet"
-            variant="secondary"
-            style={styles.actionConducteur}
-            onPress={() => navigation.navigate('PublierTrajet')}
-          />
-          <Button
-            title="Voir les demandes"
+            title="Voir les demandes à accepter"
             variant="secondary"
             style={styles.actionConducteur}
             onPress={() => navigation.navigate('DemandesDisponibles')}
@@ -634,6 +693,9 @@ export default function AccueilScreen({ navigation }: Props) {
             <ErrorState message={feedError} onRetry={refreshFeed} />
           ) : (
             <FlatList
+              ref={remonterFeed.listRef}
+              onScroll={remonterFeed.onScroll}
+              scrollEventThrottle={16}
               data={feed}
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.list}
@@ -662,9 +724,12 @@ export default function AccueilScreen({ navigation }: Props) {
                     <Card style={styles.card}>
                       <View style={styles.rowBetween}>
                         <View style={styles.tagRow}>
-                          <Tag variant="accent" label="Confirmé" />
+                          {/* Le badge porte desormais SEUL la difference
+                              entre les deux modes : le verbe d'action est
+                              identique partout ("Je participe"). */}
+                          <Tag variant="accent" label="Conducteur confirmé" />
                           {item.trajet.conducteur.verifie ? (
-                            <Tag variant="outline" label="Vérifié" />
+                            <Tag variant="outline" label="Papiers vérifiés" />
                           ) : null}
                         </View>
                         <Text style={styles.time}>
@@ -716,15 +781,14 @@ export default function AccueilScreen({ navigation }: Props) {
                       </View>
                       {item.trajet.dejaReserve ? (
                         <Button
-                          title="Trajet déjà réservé"
+                          title="Tu participes déjà"
                           variant="secondary"
                           block
                           disabled
                         />
                       ) : (
                         <Button
-                          title="Réserver"
-                          variant="secondary"
+                          title="Je participe"
                           block
                           onPress={() =>
                             navigation.navigate('TrajetDetail', { trajetId: item.trajet.id })
@@ -743,7 +807,7 @@ export default function AccueilScreen({ navigation }: Props) {
                   >
                     <Card style={styles.card}>
                       <View style={styles.rowBetween}>
-                        <Tag variant="outline" label="En attente de chauffeur" />
+                        <Tag variant="outline" label="Groupe en formation" />
                         <Text style={styles.time}>
                           {new Date(item.demande.heure).toLocaleTimeString([], {
                             hour: '2-digit',
@@ -775,10 +839,15 @@ export default function AccueilScreen({ navigation }: Props) {
                         · {item.demande.cotisation} FCFA/pers.
                       </MutedText>
                       {item.demande.dejaRejoint ? (
-                        <Button title="Déjà rejoint" variant="secondary" block disabled />
+                        <Button
+                          title="Tu participes déjà"
+                          variant="secondary"
+                          block
+                          disabled
+                        />
                       ) : (
                         <Button
-                          title="Rejoindre"
+                          title="Je participe"
                           block
                           loading={rejoindrePendingId === item.demande.id}
                           onPress={() => void handleRejoindre(item.demande.id)}
@@ -796,33 +865,14 @@ export default function AccueilScreen({ navigation }: Props) {
           <ActivityIndicator color={colors.accent} style={styles.loader} />
         </View>
       ) : role === 'chauffeur' ? (
-        // Un chauffeur (pas etudiant) n'a pas d'universite : le flux de cet
-        // ecran, pense pour chercher une place en tant que passager, ne le
-        // concerne pas. On lui affiche SES actions a la place -- et surtout on
-        // les fait dependre de conducteurStatut : renvoyer un nouvel inscrit
-        // vers "tes trajets et les demandes a accepter" lui promettait un
-        // acces qu'il n'a pas encore, tant que ses documents ne sont pas
-        // valides.
-        <View style={[styles.body, styles.bodyChauffeur]}>
-          {conducteurStatut === 'valide' ? (
-            <>
-              <MutedText style={styles.empty}>
-                Publie un trajet ou accepte un groupe d'étudiants qui cherche
-                un conducteur.
-              </MutedText>
-              <Button
-                title="Publier un trajet"
-                block
-                onPress={() => navigation.navigate('PublierTrajet')}
-              />
-              <Button
-                title="Voir les demandes à accepter"
-                variant="secondary"
-                block
-                onPress={() => navigation.navigate('DemandesDisponibles')}
-              />
-            </>
-          ) : conducteurStatut === 'en attente' ? (
+        // Un conducteur n'a pas d'universite : le flux passager ne le concerne
+        // pas. On lui montre a la place les demandes de SA commune, celle
+        // memorisee a l'inscription -- il n'a plus a la ressaisir ni a passer
+        // par un autre ecran. L'affichage depend de l'etat de son dossier :
+        // lui promettre des demandes a accepter avant validation lui
+        // annoncerait un acces qu'il n'a pas encore.
+        <View style={[styles.body, conducteurStatut !== 'valide' && styles.bodyChauffeur]}>
+          {conducteurStatut === 'en attente' ? (
             <MutedText style={styles.empty}>
               Tes documents sont en cours de vérification. Dès qu'un
               administrateur les valide, tu pourras publier des trajets et
@@ -840,7 +890,7 @@ export default function AccueilScreen({ navigation }: Props) {
                 onPress={() => navigation.navigate('InscriptionConducteur')}
               />
             </>
-          ) : (
+          ) : conducteurStatut !== 'valide' ? (
             <>
               <MutedText style={styles.empty}>
                 Pour commencer à conduire, envoie ton permis et le matricule de
@@ -852,6 +902,47 @@ export default function AccueilScreen({ navigation }: Props) {
                 onPress={() => navigation.navigate('InscriptionConducteur')}
               />
             </>
+          ) : !communeId ? (
+            <MutedText style={styles.empty}>
+              Choisis ta commune pour voir les étudiants qui cherchent un
+              conducteur près de toi.
+            </MutedText>
+          ) : (
+            <FlatList
+              ref={remonterConducteur.listRef}
+              onScroll={remonterConducteur.onScroll}
+              scrollEventThrottle={16}
+              data={demandesAAccepter}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.list}
+              refreshControl={
+                <RefreshControl
+                  refreshing={chargementAAccepter}
+                  onRefresh={() => void chargerDemandesAAccepter()}
+                  tintColor={colors.accent}
+                />
+              }
+              ListHeaderComponent={
+                <MutedText style={styles.count}>
+                  {demandesAAccepter.length} demande
+                  {demandesAAccepter.length > 1 ? 's' : ''} au départ de{' '}
+                  {communeLabel ?? 'ta commune'}
+                </MutedText>
+              }
+              ListEmptyComponent={
+                <MutedText style={styles.empty}>
+                  Aucune demande pour l'instant. Tu peux publier un trajet avec
+                  le bouton +.
+                </MutedText>
+              }
+              renderItem={({ item }) => (
+                <DemandeDisponibleCard
+                  demande={item}
+                  pending={accepterPendingId === item.id}
+                  onAccepter={() => void handleAccepterDemande(item.id)}
+                />
+              )}
+            />
           )}
         </View>
       ) : !universiteId ? (
@@ -884,19 +975,86 @@ export default function AccueilScreen({ navigation }: Props) {
         onClose={() => setUniversiteModalOpen(false)}
       />
 
-      {universiteId ? (
+      <BoutonRemonter
+        visible={role === 'chauffeur' ? remonterConducteur.visible : remonterFeed.visible}
+        onPress={role === 'chauffeur' ? remonterConducteur.remonter : remonterFeed.remonter}
+      />
+
+      {/* Meme bouton "+" pour tout le monde, seule l'action change : creer une
+          demande quand on cherche une place, publier un trajet quand on
+          conduit. Un conducteur retrouve ainsi le geste qu'il connait deja. */}
+      {role === 'chauffeur' ? (
+        conducteurStatut === 'valide' ? (
+          <TouchableOpacity
+            style={styles.fab}
+            onPress={() => navigation.navigate('PublierTrajet')}
+          >
+            <PlusIcon />
+          </TouchableOpacity>
+        ) : null
+      ) : universiteId ? (
         <TouchableOpacity
           style={styles.fab}
-          onPress={() =>
+          onPress={() => {
+            // Un compte "les deux" peut aussi bien chercher une place que
+            // proposer la sienne : on lui pose la question au lieu de
+            // trancher a sa place.
+            if (conducteurStatut === 'valide') {
+              setMenuCreationOuvert(true);
+              return;
+            }
             navigation.navigate('CreerDemande', {
               universiteId,
               communeId: communeId ?? undefined,
-            })
-          }
+            });
+          }}
         >
           <PlusIcon />
         </TouchableOpacity>
       ) : null}
+
+      <Modal
+        visible={menuCreationOuvert}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuCreationOuvert(false)}
+      >
+        <TouchableOpacity
+          style={styles.menuFond}
+          activeOpacity={1}
+          onPress={() => setMenuCreationOuvert(false)}
+        >
+          <View style={[styles.menuFeuille, { paddingBottom: insets.bottom + 20 }]}>
+            <H5 style={styles.menuTitre}>Tu veux…</H5>
+            <Button
+              title="Chercher une place (créer une demande)"
+              block
+              onPress={() => {
+                setMenuCreationOuvert(false);
+                navigation.navigate('CreerDemande', {
+                  universiteId: universiteId ?? undefined,
+                  communeId: communeId ?? undefined,
+                });
+              }}
+            />
+            <Button
+              title="Proposer ma voiture (publier un trajet)"
+              variant="secondary"
+              block
+              onPress={() => {
+                setMenuCreationOuvert(false);
+                navigation.navigate('PublierTrajet');
+              }}
+            />
+            <Button
+              title="Annuler"
+              variant="ghost"
+              block
+              onPress={() => setMenuCreationOuvert(false)}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {joinModalDemandeId && communeId ? (
         <RejoindrePositionModal
@@ -994,6 +1152,24 @@ const styles = StyleSheet.create({
   },
   bodyChauffeur: {
     gap: 10,
+  },
+  count: {
+    fontSize: 12.5,
+    marginBottom: 10,
+  },
+  menuFond: {
+    flex: 1,
+    backgroundColor: 'rgba(32,30,29,0.45)',
+    justifyContent: 'flex-end',
+  },
+  menuFeuille: {
+    backgroundColor: colors.background,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    gap: 10,
+  },
+  menuTitre: {
+    marginBottom: 4,
   },
   actionsConducteur: {
     flexDirection: 'row',

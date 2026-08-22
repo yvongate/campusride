@@ -14,7 +14,8 @@ import {
 } from '../api/client';
 import { useRefreshOnForeground } from '../hooks/useRefreshOnForeground';
 import { Button } from '../components/Button';
-import { Card } from '../components/Card';
+import { DemandeDisponibleCard } from '../components/DemandeDisponibleCard';
+import { BoutonRemonter, useRemonterEnHaut } from '../components/BoutonRemonter';
 import { ErrorState } from '../components/ErrorState';
 import { showError } from '../components/Toast';
 import { PickerField } from '../components/PickerField';
@@ -49,6 +50,8 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
   const [loadingDemandes, setLoadingDemandes] = useState(false);
   const [demandesError, setDemandesError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const { listRef, visible, onScroll, remonter } =
+    useRemonterEnHaut<DemandeDisponible>();
 
   const loadReferentiel = useCallback(async () => {
     setLoadingReferentiel(true);
@@ -166,6 +169,9 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
           <ErrorState message={demandesError} onRetry={loadDemandes} />
         ) : (
           <FlatList
+            ref={listRef}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
             data={demandes}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
@@ -190,37 +196,13 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
             ListEmptyComponent={
               <MutedText style={styles.empty}>Aucune demande disponible.</MutedText>
             }
-            renderItem={({ item }) => {
-              return (
-                <Card style={styles.card}>
-                  <View style={styles.rowBetween}>
-                    <Text style={styles.cardTitle}>
-                      {item.poi.nom} → {item.universite.nom}
-                    </Text>
-                    <Text style={styles.time}>
-                      {new Date(item.heure).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </Text>
-                  </View>
-                  <MutedText style={styles.cardBody}>
-                    {item.placesRecherchees} passagers · point suggéré :{' '}
-                    {item.poi.nom} ·{' '}
-                    <Text style={styles.total}>
-                      {item.placesRecherchees * item.cotisation} FCFA
-                    </Text>{' '}
-                    total
-                  </MutedText>
-                  <Button
-                    title={pendingId === item.id ? '...' : 'Voir & accepter'}
-                    block
-                    loading={pendingId === item.id}
-                    onPress={() => void handleAccepter(item.id)}
-                  />
-                </Card>
-              );
-            }}
+            renderItem={({ item }) => (
+              <DemandeDisponibleCard
+                demande={item}
+                pending={pendingId === item.id}
+                onAccepter={() => void handleAccepter(item.id)}
+              />
+            )}
           />
         )
       ) : (
@@ -228,6 +210,8 @@ export default function DemandesDisponiblesScreen({ navigation }: Props) {
           Choisis ta commune de départ pour voir les demandes.
         </MutedText>
       )}
+
+      <BoutonRemonter visible={visible} onPress={remonter} />
     </View>
   );
 }

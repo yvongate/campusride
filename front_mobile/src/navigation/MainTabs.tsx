@@ -2,7 +2,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import type { MainTabsParamList } from './types';
 import { LiquidGlassTabBar } from './LiquidGlassTabBar';
 import AccueilScreen from '../screens/AccueilScreen';
-import MesTrajetsPassagerScreen from '../screens/MesTrajetsPassagerScreen';
+import MesTrajetsScreen from '../screens/MesTrajetsScreen';
 import MessagesHubScreen from '../screens/MessagesHubScreen';
 import ProfilScreen from '../screens/ProfilScreen';
 
@@ -18,7 +18,7 @@ export default function MainTabs() {
       tabBar={(props) => <LiquidGlassTabBar {...props} />}
     >
       <Tab.Screen name="Accueil" component={AccueilScreen} />
-      <Tab.Screen name="MesTrajetsPassager" component={MesTrajetsPassagerScreen} />
+      <Tab.Screen name="MesTrajetsPassager" component={MesTrajetsScreen} />
       <Tab.Screen name="MessagesHub" component={MessagesHubScreen} />
       <Tab.Screen name="Profil" component={ProfilScreen} />
     </Tab.Navigator>

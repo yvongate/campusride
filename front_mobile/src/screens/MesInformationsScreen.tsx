@@ -181,33 +181,43 @@ export default function MesInformationsScreen({ navigation }: Props) {
           onPress={() => void handleSave()}
         />
 
-        <View style={styles.universiteBlock}>
-          <PickerField
-            label="Ton université"
-            placeholder="Choisir mon université"
-            selectedLabel={profile.universite?.nom ?? null}
-            options={universites.map((u) => ({ id: u.id, label: u.nom, sublabel: u.commune }))}
-            onSelect={(id) => void handleChoisirUniversite(id)}
-            searchable
-          />
-          {universiteSaved ? (
-            <Text style={styles.success}>Université mise à jour ✓</Text>
-          ) : null}
-          {profile.role === 'chauffeur' ? (
+        {/* Un conducteur non etudiant n'a aucune universite de rattachement :
+            lui proposer d'en choisir une n'avait pas de sens. Sa commune n'est
+            pas un reglage non plus -- elle est deduite de sa position sur
+            l'accueil, et modifiable la-bas d'un tap. */}
+        {profile.role === 'chauffeur' ? (
+          <View style={styles.universiteBlock}>
             <MutedText style={styles.hint}>
-              Tu es inscrit comme chauffeur, donc rattaché à aucune université.
-              Choisis-en une ci-dessus si tu es aussi étudiant.
+              Tu es inscrit comme conducteur : pas d'université de
+              rattachement. Ta commune est détectée automatiquement sur
+              l'accueil, où tu peux en changer à tout moment.
             </MutedText>
-          ) : profile.role === 'etudiant' ? (
-            <Button
-              title="Je ne suis pas étudiant, je suis chauffeur"
-              variant="ghost"
-              block
-              loading={chauffeurPending}
-              onPress={() => void handleDeclarerChauffeur()}
+          </View>
+        ) : (
+          <View style={styles.universiteBlock}>
+            <PickerField
+              label="Ton université"
+              placeholder="Choisir mon université"
+              selectedLabel={profile.universite?.nom ?? null}
+              options={universites.map((u) => ({ id: u.id, label: u.nom, sublabel: u.commune }))}
+              onSelect={(id) => void handleChoisirUniversite(id)}
+              searchable
             />
-          ) : null}
-        </View>
+            {universiteSaved ? (
+              <Text style={styles.success}>Université mise à jour ✓</Text>
+            ) : null}
+            {profile.role === 'etudiant' ? (
+              <Button
+                title="Je ne suis pas étudiant, je suis conducteur"
+                variant="secondary"
+                block
+                style={styles.bascule}
+                loading={chauffeurPending}
+                onPress={() => void handleDeclarerChauffeur()}
+              />
+            ) : null}
+          </View>
+        )}
 
         <View style={styles.readonlyBlock}>
           <Field label="Téléphone">
@@ -262,6 +272,9 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingBottom: 24,
+  },
+  bascule: {
+    marginTop: 10,
   },
   universiteBlock: {
     marginTop: 22,

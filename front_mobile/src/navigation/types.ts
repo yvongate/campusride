@@ -13,6 +13,7 @@ export type RootStackParamList = {
   MainTabs: undefined;
   InscriptionConducteur: undefined;
   CompleterProfil: undefined;
+  ChoisirProfil: undefined;
   ChoisirUniversite: undefined;
   TrajetDetail: { trajetId: string };
   Rencontre: { trajetId: string };

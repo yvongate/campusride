@@ -158,12 +158,12 @@ export default function TrajetDetailScreen({ navigation, route }: Props) {
         <Button
           title={
             dejaReserve
-              ? 'Trajet déjà réservé'
+              ? 'Tu participes déjà'
               : complet
                 ? 'Trajet complet'
                 : trajet.statut !== 'ouvert'
                   ? 'Trajet indisponible'
-                  : `Réserver ma place — ${trajet.cotisation} FCFA`
+                  : `Je participe — ${trajet.cotisation} FCFA`
           }
           block
           loading={reserving}

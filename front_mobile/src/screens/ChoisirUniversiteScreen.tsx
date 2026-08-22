@@ -13,12 +13,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, fonts } from '../theme';
-import { declarerChauffeur, listUniversites, updateUniversite, Universite } from '../api/client';
+import { listUniversites, updateUniversite, Universite } from '../api/client';
 import { normalise } from '../components/PickerField';
 import { Button } from '../components/Button';
 import { ErrorState } from '../components/ErrorState';
 import { showError } from '../components/Toast';
 import { H3, MutedText } from '../components/Typography';
+import { BoutonRemonter, useRemonterEnHaut } from '../components/BoutonRemonter';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChoisirUniversite'>;
 
@@ -31,12 +32,13 @@ function extractErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-// Premiere connexion uniquement (voir CompleterProfilScreen), juste apres le
-// nom -- une seule fois : l'universite est ensuite reutilisee automatiquement
-// partout (Accueil, CreerDemande) au lieu d'etre re-choisie a chaque ecran.
-// Skippable comme le nom (voir memes lecons que CompleterProfilScreen : ne
-// jamais bloquer l'entree dans l'app), modifiable a tout moment depuis "Mes
-// informations".
+// Etape du parcours ETUDIANT, atteinte depuis ChoisirProfilScreen. Le bouton
+// "je suis chauffeur" a quitte cet ecran : le choix du profil se fait
+// desormais avant (ChoisirProfilScreen), et un conducteur ne passe jamais
+// ici -- lui presenter une liste d'universites n'avait aucun sens.
+// L'universite est memorisee une fois puis reutilisee partout (Accueil,
+// CreerDemande). Skippable comme le nom : ne jamais bloquer l'entree dans
+// l'app. Modifiable a tout moment depuis "Mes informations".
 export default function ChoisirUniversiteScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [universites, setUniversites] = useState<Universite[]>([]);
@@ -44,7 +46,7 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [chauffeurPending, setChauffeurPending] = useState(false);
+  const { listRef, visible, onScroll, remonter } = useRemonterEnHaut<Universite>();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -81,22 +83,6 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
     }
   }
 
-  // Un chauffeur qui n'est pas etudiant n'a pas d'universite de rattachement
-  // -- ce choix ne devrait plus jamais lui etre pose ensuite (voir
-  // AccueilScreen/DemandesDisponiblesScreen, qui traitent role === 'chauffeur'
-  // comme "pas d'universite, et ce n'est pas un manque").
-  async function handleChauffeur() {
-    setChauffeurPending(true);
-    try {
-      await declarerChauffeur();
-      navigation.navigate('Localisation');
-    } catch (e) {
-      showError(extractErrorMessage(e, "L'enregistrement a échoué."));
-    } finally {
-      setChauffeurPending(false);
-    }
-  }
-
   return (
     <View
       style={[
@@ -108,15 +94,6 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
       <MutedText style={styles.subtitle}>
         Pour te proposer les trajets et demandes qui te concernent.
       </MutedText>
-
-      <Button
-        title="Je ne suis pas étudiant, je suis chauffeur"
-        variant="secondary"
-        block
-        loading={chauffeurPending}
-        disabled={pendingId !== null}
-        onPress={() => void handleChauffeur()}
-      />
 
       <TextInput
         style={styles.search}
@@ -133,6 +110,9 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
         <ErrorState message={loadError} onRetry={load} />
       ) : (
         <FlatList
+          ref={listRef}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           data={filtered}
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
@@ -143,7 +123,7 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.item}
-              disabled={pendingId !== null || chauffeurPending}
+              disabled={pendingId !== null}
               onPress={() => void handleSelect(item)}
             >
               <View style={styles.itemText}>
@@ -160,11 +140,13 @@ export default function ChoisirUniversiteScreen({ navigation }: Props) {
         />
       )}
 
+      <BoutonRemonter visible={visible} onPress={remonter} bottom={76} />
+
       <Button
         title="Passer pour l'instant"
         variant="ghost"
         block
-        disabled={pendingId !== null || chauffeurPending}
+        disabled={pendingId !== null}
         onPress={() => navigation.navigate('Localisation')}
       />
     </View>

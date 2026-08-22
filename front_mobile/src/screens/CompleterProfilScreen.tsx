@@ -38,7 +38,7 @@ export default function CompleterProfilScreen({ navigation }: Props) {
     setSubmitting(true);
     try {
       await updateNom(nom.trim());
-      navigation.navigate('ChoisirUniversite');
+      navigation.navigate('ChoisirProfil');
     } catch {
       setError("Impossible d'enregistrer ton nom pour le moment. Réessaie.");
     } finally {
@@ -88,7 +88,7 @@ export default function CompleterProfilScreen({ navigation }: Props) {
             variant="ghost"
             block
             disabled={submitting}
-            onPress={() => navigation.navigate('ChoisirUniversite')}
+            onPress={() => navigation.navigate('ChoisirProfil')}
           />
         </View>
       </TouchableWithoutFeedback>

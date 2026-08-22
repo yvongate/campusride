@@ -18,7 +18,9 @@ export function ScreenHeader({
 }: {
   title: string;
   subtitle?: string;
-  onBack: () => void;
+  // Optionnel : un ecran rendu comme onglet racine n'a aucune destination de
+  // retour, un chevron y serait inerte.
+  onBack?: () => void;
   surface?: boolean;
   right?: ReactNode;
 }) {
@@ -27,9 +29,11 @@ export function ScreenHeader({
   return (
     <View style={[styles.header, { paddingTop: insets.top + 16 }, surface && styles.surface]}>
       <View style={styles.row}>
-        <TouchableOpacity onPress={onBack} hitSlop={8} style={styles.back}>
-          <ChevronLeftIcon />
-        </TouchableOpacity>
+        {onBack ? (
+          <TouchableOpacity onPress={onBack} hitSlop={8} style={styles.back}>
+            <ChevronLeftIcon />
+          </TouchableOpacity>
+        ) : null}
         <View style={styles.titleBlock}>
           <H4 numberOfLines={2}>{title}</H4>
           {subtitle ? <MutedText style={styles.subtitle}>{subtitle}</MutedText> : null}
