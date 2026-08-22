@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { verifierPeutEtrePassager } from '../common/utils/role-passager';
 import { aUneActiviteActive } from '../common/utils/activite-active';
 import { verifierFenetreReservation } from '../common/utils/fenetre-reservation';
 import { calculerSanctionAnnulationTardive } from '../common/utils/sanction-annulation';
@@ -37,6 +38,15 @@ const EXPIRATION_DEADLINE_MS = 75 * 60 * 1000;
 // bout de la commune.
 const DISTANCE_MAX_POINT_REGROUPEMENT_KM = 1.5;
 
+// Instant a partir duquel une demande n'est plus exploitable : miroir exact de
+// la condition d'expirerDemandesEnRetard. Les listes ET les actions s'y
+// referent, sinon elles divergent du cron pendant l'intervalle entre deux
+// passages -- une demande deja condamnee restait affichee, rejoignable et
+// acceptable, pour etre annulee dans la minute qui suivait.
+function limiteExploitation(): Date {
+  return new Date(Date.now() + EXPIRATION_DEADLINE_MS);
+}
+
 @Injectable()
 export class DemandesService {
   private readonly logger = new Logger(DemandesService.name);
@@ -48,6 +58,8 @@ export class DemandesService {
   ) {}
 
   async creerDemande(createurId: string, dto: CreateDemandeDto) {
+    await verifierPeutEtrePassager(this.prisma, createurId);
+
     const universite = await this.prisma.universite.findUnique({
       where: { id: dto.universiteId },
     });
@@ -169,6 +181,7 @@ export class DemandesService {
         universiteId,
         communeId,
         statut: 'ouverte',
+        heure: { gt: limiteExploitation() },
       },
       include: {
         createur: { select: { id: true, nom: true, prenom: true, note: true, nombreNotations: true } },
@@ -232,6 +245,8 @@ export class DemandesService {
     demandeId: string,
     dto: JoinDemandeDto,
   ) {
+    await verifierPeutEtrePassager(this.prisma, userId);
+
     const demande = await this.prisma.demande.findUnique({
       where: { id: demandeId },
     });
@@ -241,6 +256,14 @@ export class DemandesService {
     if (demande.statut !== 'ouverte') {
       throw new ConflictException(
         "Cette demande n'accepte plus de nouveaux participants.",
+      );
+    }
+    // Le filtrage des listes ne suffit pas : un ecran ouvert depuis un moment
+    // enverrait quand meme la requete, et la personne rejoindrait un groupe
+    // que le cron s'apprete a annuler.
+    if (demande.heure <= limiteExploitation()) {
+      throw new ConflictException(
+        "C'est trop tard pour rejoindre cette demande : le départ est dans moins de 1h15.",
       );
     }
 
@@ -436,6 +459,7 @@ export class DemandesService {
         ...(universiteId ? { universiteId } : {}),
         statut: 'quota_atteint',
         poiId: { not: null },
+        heure: { gt: limiteExploitation() },
       },
       include: {
         createur: { select: { id: true, nom: true, prenom: true, note: true, nombreNotations: true } },
@@ -688,6 +712,15 @@ export class DemandesService {
     if (!demande.poiId) {
       throw new ConflictException(
         "Aucun point de regroupement n'a encore été trouvé pour cette demande.",
+      );
+    }
+
+    // Meme borne que pour les passagers : accepter un groupe dont le depart
+    // est dans moins de 1h15 revient a s'engager sur un trajet que le cron
+    // d'expiration annulera, en laissant croire au conducteur que c'est fait.
+    if (demande.heure <= limiteExploitation()) {
+      throw new ConflictException(
+        "C'est trop tard pour accepter cette demande : le départ est dans moins de 1h15.",
       );
     }
 

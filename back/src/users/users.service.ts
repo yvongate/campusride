@@ -46,11 +46,10 @@ export class UsersService {
       }
     }
 
-    const updateData: { nom?: string; universiteId?: string; role?: string } =
-      {
-        nom: data.nom,
-        universiteId: data.universiteId,
-      };
+    const updateData: { nom?: string; universiteId?: string; role?: string } = {
+      nom: data.nom,
+      universiteId: data.universiteId,
+    };
 
     // Ne s'applique qu'a un compte encore "etudiant" (jamais rattache a une
     // universite ni deja conducteur) -- ne retrograde jamais un compte deja

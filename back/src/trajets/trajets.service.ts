@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { join } from 'path';
+import { verifierPeutEtrePassager } from '../common/utils/role-passager';
 import { aUneActiviteActive } from '../common/utils/activite-active';
 import { verifierFenetreReservation } from '../common/utils/fenetre-reservation';
 import { calculerSanctionAnnulationTardive } from '../common/utils/sanction-annulation';
@@ -306,6 +307,8 @@ export class TrajetsService {
   }
 
   async reserverTrajet(passagerId: string, trajetId: string) {
+    await verifierPeutEtrePassager(this.prisma, passagerId);
+
     const trajet = await this.prisma.trajet.findUnique({
       where: { id: trajetId },
     });

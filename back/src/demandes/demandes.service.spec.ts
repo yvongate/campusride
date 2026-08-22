@@ -420,6 +420,7 @@ describe('DemandesService', () => {
           universiteId: 'univ-1',
           communeId: 'commune-1',
           statut: 'ouverte',
+          heure: { gt: expect.any(Date) },
         },
         include: {
           createur: {
@@ -813,6 +814,7 @@ describe('DemandesService', () => {
           universiteId: 'univ-1',
           statut: 'quota_atteint',
           poiId: { not: null },
+          heure: { gt: expect.any(Date) },
         },
         include: {
           createur: {
@@ -836,9 +838,74 @@ describe('DemandesService', () => {
             communeId: 'commune-1',
             statut: 'quota_atteint',
             poiId: { not: null },
+            heure: { gt: expect.any(Date) },
           },
         }),
       );
+    });
+  });
+
+  // La borne des 1h15 doit valoir pour les LISTES et pour les ACTIONS : filtrer
+  // seulement l'affichage laissait un ecran deja ouvert envoyer la requete.
+  describe('borne des 1h15 avant le depart', () => {
+    const joinDto = { lat: 5.3, lng: -4 };
+
+    it('exclut des listes les demandes trop proches du depart', async () => {
+      demandeFindManyMock.mockResolvedValueOnce([]);
+
+      await service.listerDemandes('univ-1', 'commune-1', 'user-1');
+
+      const filtre = demandeFindManyMock.mock.calls[0][0].where;
+      const limite = filtre.heure.gt as Date;
+      const marge = limite.getTime() - Date.now();
+      // Miroir d'EXPIRATION_DEADLINE_MS : 75 minutes, a la seconde pres.
+      expect(marge).toBeGreaterThan(74 * 60 * 1000);
+      expect(marge).toBeLessThanOrEqual(75 * 60 * 1000);
+    });
+
+    it('refuse de rejoindre une demande dont le depart est dans moins de 1h15', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        statut: 'ouverte',
+        heure: new Date(Date.now() + 30 * 60 * 1000),
+      });
+
+      await expect(
+        service.rejoindreDemande('user-1', 'demande-1', joinDto),
+      ).rejects.toThrow(ConflictException);
+      expect(participationCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('laisse passer la garde quand le depart est plus lointain', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        statut: 'ouverte',
+        heure: new Date(Date.now() + 3 * 60 * 60 * 1000),
+      });
+
+      // L'appel echouera plus loin (mocks volontairement incomplets) : seule
+      // compte ici l'absence du refus "trop tard".
+      const erreur: unknown = await service
+        .rejoindreDemande('user-1', 'demande-1', joinDto)
+        .then(() => null)
+        .catch((e: unknown) => e);
+
+      const message = erreur instanceof Error ? erreur.message : '';
+      expect(message).not.toContain('trop tard');
+    });
+
+    it('refuse au conducteur d accepter une demande dont le depart est dans moins de 1h15', async () => {
+      demandeFindUniqueMock.mockResolvedValueOnce({
+        id: 'demande-1',
+        statut: 'quota_atteint',
+        poiId: 'poi-1',
+        heure: new Date(Date.now() + 30 * 60 * 1000),
+      });
+
+      await expect(
+        service.accepterDemande('conducteur-1', 'demande-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(trajetCreateMock).not.toHaveBeenCalled();
     });
   });
 
