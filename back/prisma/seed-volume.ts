@@ -39,25 +39,28 @@ export function creneau(
   return date;
 }
 
-// Nombre d'offres (trajets + demandes) generees par universite.
-export const OFFRES_PAR_UNIVERSITE = 12;
+// L'accueil filtre sur l'universite ET la commune de depart. Generer N offres
+// par universite en tirant la commune au hasard laissait donc environ 40 % des
+// couples vides -- exactement l'ecran vide qu'on cherchait a eviter. On couvre
+// desormais CHAQUE couple (universite, commune) avec un trajet et une demande.
+// Chaque ecole recoit ainsi 2 x 14 communes = 28 offres, bien au-dela des 12
+// demandees, et aucune combinaison choisie par un utilisateur ne peut etre
+// vide.
+export const OFFRES_PAR_COUPLE = 2;
 
 // Combien d'universites recoivent ce jeu de donnees. 432 = toutes celles du
-// referentiel (6 publiques + 426 privees) : quelle que soit l'ecole choisie
-// par la personne qui teste l'app, elle y trouve de l'offre plutot qu'un
-// ecran vide.
-//
-// Ordre de grandeur, mesure : ~5 200 offres, ~12 300 comptes, ~30 000 lignes,
-// ~47 000 requetes. Soit environ 90 secondes depuis le Shell de Render, mais
-// pres d'une heure depuis un poste distant (la latence reseau domine) --
-// lancer le seed depuis Render, donc.
-//
-// La regle "une seule activite active par compte"
-// (common/utils/activite-active.ts) interdit de reutiliser les personnes :
-// c'est elle qui impose autant de comptes. Ce volume a aussi rendu la
-// pagination SERVEUR obligatoire sur la liste des comptes du back-office
-// (UsersService.listerComptes), qui renvoyait jusqu'ici toute la table.
+// referentiel (6 publiques + 426 privees).
 export const NB_UNIVERSITES_DEMO = 432;
+
+// Prefixe des numeros generes. Sert aussi a recharger en UNE requete les
+// comptes deja crees, au lieu d'un findUnique par compte.
+// Plage 2xxxxx. La plage 1xxxxx a servi a une repartition anterieure, ou les
+// offres etaient dispersees au hasard entre les communes : les memes numeros y
+// designaient d'autres roles. Repartir sur une plage vierge evite qu'un compte
+// deja conducteur d'un trajet a venir bloque la creation d'une offre, ou
+// qu'un ancien passager soit resservi comme conducteur sans dossier valide.
+// Les anciennes offres restent en base et expirent d'elles-memes.
+const PREFIXE_TEL = '+22507002';
 
 // Generateur pseudo-aleatoire deterministe (mulberry32). Le jeu varie d'une
 // universite a l'autre, mais reste identique d'une execution a l'autre : un
@@ -92,18 +95,39 @@ const PRENOMS = [
 // possible. Deterministe : re-executer le seed retombe sur les memes
 // comptes au lieu d'en creer de nouveaux.
 function telephoneDemo(index: number): string {
-  return `+2250700${String(100000 + index)}`;
+  return `+2250700${String(200000 + index)}`;
 }
+
+// Cache des comptes deja crees, rempli d'UNE requete au demarrage. Sans lui,
+// on ferait un findUnique par compte, soit pres de 30 000 allers-retours
+// reseau inutiles.
+type CacheComptes = Map<string, string>;
 
 async function compteDemo(
   prisma: PrismaClient,
+  cache: CacheComptes,
+  avecDossier: Set<string>,
   index: number,
   conducteur: boolean,
 ): Promise<string> {
   const telephone = telephoneDemo(index);
-  const existant = await prisma.utilisateur.findUnique({ where: { telephone } });
-  if (existant) {
-    return existant.id;
+  const connu = cache.get(telephone);
+  if (connu) {
+    // Un seed interrompu entre la creation du compte et celle de son dossier
+    // laisserait un conducteur non verifie, donc sans badge sur les cards.
+    if (conducteur && !avecDossier.has(connu)) {
+      await prisma.documentsConducteur.create({
+        data: {
+          userId: connu,
+          selfie: 'demo-selfie.jpg',
+          photoPermis: 'demo-permis.jpg',
+          matriculeVehicule: `CI-DEMO-${String(index).padStart(5, '0')}`,
+          statut: 'valide',
+        },
+      });
+      avecDossier.add(connu);
+    }
+    return connu;
   }
 
   const user = await prisma.utilisateur.create({
@@ -114,8 +138,10 @@ async function compteDemo(
       role: conducteur ? 'les deux' : 'etudiant',
     },
   });
+  cache.set(telephone, user.id);
 
   if (conducteur) {
+    avecDossier.add(user.id);
     // Sans dossier valide, le conducteur n'apparaitrait pas comme verifie et
     // les cards de trajet perdraient leur badge -- exactement l'element de
     // confiance que la demo doit montrer.
@@ -124,7 +150,7 @@ async function compteDemo(
         userId: user.id,
         selfie: 'demo-selfie.jpg',
         photoPermis: 'demo-permis.jpg',
-        matriculeVehicule: `CI-DEMO-${String(index).padStart(4, '0')}`,
+        matriculeVehicule: `CI-DEMO-${String(index).padStart(5, '0')}`,
         statut: 'valide',
       },
     });
@@ -171,124 +197,176 @@ export async function seedDemoVolume(prisma: PrismaClient): Promise<void> {
     return;
   }
 
+  // Trois lectures groupees remplacent des dizaines de milliers de requetes
+  // unitaires : les comptes deja generes, et les proprietaires qui ont encore
+  // une offre a venir (donc a ne pas resservir, sous peine de violer la regle
+  // "une seule activite active par compte").
+  const maintenant = new Date();
+  const comptesExistants = await prisma.utilisateur.findMany({
+    where: { telephone: { startsWith: PREFIXE_TEL } },
+    select: { id: true, telephone: true },
+  });
+  const cache: CacheComptes = new Map(
+    comptesExistants
+      .filter((u): u is { id: string; telephone: string } => u.telephone !== null)
+      .map((u) => [u.telephone, u.id]),
+  );
+
+  const avecDossier = new Set(
+    (
+      await prisma.documentsConducteur.findMany({
+        where: { statut: 'valide' },
+        select: { userId: true },
+      })
+    ).map((d) => d.userId),
+  );
+
+  const conducteursOccupes = new Set(
+    (
+      await prisma.trajet.findMany({
+        where: { statut: 'ouvert', heure: { gt: maintenant } },
+        select: { conducteurId: true },
+      })
+    ).map((t) => t.conducteurId),
+  );
+  const createursOccupes = new Set(
+    (
+      await prisma.demande.findMany({
+        where: {
+          statut: { in: ['ouverte', 'quota_atteint'] },
+          heure: { gt: maintenant },
+        },
+        select: { createurId: true },
+      })
+    ).map((d) => d.createurId),
+  );
+
   let trajetsCrees = 0;
   let demandesCreees = 0;
 
   for (const [indexUniv, universite] of universites.entries()) {
-    const alea = creerAleatoire(indexUniv + 1);
+    for (const [indexCommune, commune] of utilisables.entries()) {
+      // Graine propre au couple : deux ecoles n'ont pas les memes horaires ni
+      // les memes prix, mais le jeu reste identique d'une execution a l'autre.
+      const alea = creerAleatoire(indexUniv * 1000 + indexCommune + 1);
 
-    for (let i = 0; i < OFFRES_PAR_UNIVERSITE; i++) {
-      // Bloc de 6 identifiants reserve a cette offre : 1 proprietaire et
-      // jusqu'a 5 accompagnants. Deterministe, donc re-executable.
-      const base = (indexUniv * OFFRES_PAR_UNIVERSITE + i) * 6;
+      // Bloc de 12 identifiants reserve a ce couple : 6 pour le trajet
+      // (conducteur + 5 places au plus), 6 pour la demande. Calcule et non
+      // incremente, pour rester aligne meme quand une offre est sautee.
+      const base = (indexUniv * utilisables.length + indexCommune) * 12;
 
-      const commune = utilisables[Math.floor(alea() * utilisables.length)];
-      const poi = commune.pois[Math.floor(alea() * commune.pois.length)];
-      // Environ un tiers aujourd'hui, le reste demain (creneau() reporte de
-      // lui-meme au lendemain ce qui serait trop proche pour tenir).
-      const heure = creneau(
-        alea() < 0.35 ? 0 : 1,
-        6 + Math.floor(alea() * 13),
-        alea() < 0.5 ? 0 : 30,
-      );
-      const cotisation = 500 + Math.floor(alea() * 31) * 50;
-      const places = 2 + Math.floor(alea() * 3);
-      // Remplissage varie : certaines offres complètes (pour montrer le badge
-      // correspondant), d'autres encore ouvertes.
-      const accompagnants = Math.floor(alea() * (places + 1));
+      // --- Trajet ---
+      {
+        const poi = commune.pois[Math.floor(alea() * commune.pois.length)];
+        const heure = creneau(
+          alea() < 0.35 ? 0 : 1,
+          6 + Math.floor(alea() * 13),
+          alea() < 0.5 ? 0 : 30,
+        );
+        const cotisation = 500 + Math.floor(alea() * 31) * 50;
+        const places = 2 + Math.floor(alea() * 3);
+        const passagers = Math.floor(alea() * (places + 1));
 
-      if (i % 2 === 0) {
-        const conducteurId = await compteDemo(prisma, base, true);
-        const deja = await prisma.trajet.findFirst({
-          where: {
-            conducteurId,
-            statut: 'ouvert',
-            heure: { gt: new Date() },
-          },
-        });
-        if (deja) continue;
-
-        const trajet = await prisma.trajet.create({
-          data: {
-            conducteurId,
-            universiteId: universite.id,
-            pointDeRdvId: poi.id,
-            heure,
-            places,
-            cotisation,
-            statut: 'ouvert',
-          },
-        });
-
-        for (let p = 0; p < Math.min(accompagnants, places); p++) {
-          const passagerId = await compteDemo(prisma, base + 1 + p, false);
-          await prisma.reservation.create({
+        const conducteurId = await compteDemo(prisma, cache, avecDossier, base, true);
+        if (!conducteursOccupes.has(conducteurId)) {
+          const trajet = await prisma.trajet.create({
             data: {
-              trajetId: trajet.id,
-              passagerId,
-              prixParPersonne: cotisation,
-              statut: 'confirmee',
+              conducteurId,
+              universiteId: universite.id,
+              pointDeRdvId: poi.id,
+              heure,
+              places,
+              cotisation,
+              statut: 'ouvert',
             },
           });
-        }
-        trajetsCrees += 1;
-      } else {
-        const createurId = await compteDemo(prisma, base, false);
-        const deja = await prisma.demande.findFirst({
-          where: {
-            createurId,
-            statut: { in: ['ouverte', 'quota_atteint'] },
-            heure: { gt: new Date() },
-          },
-        });
-        if (deja) continue;
+          conducteursOccupes.add(conducteurId);
 
+          for (let p = 0; p < Math.min(passagers, places); p++) {
+            const passagerId = await compteDemo(prisma, cache, avecDossier, base + 1 + p, false);
+            await prisma.reservation.create({
+              data: {
+                trajetId: trajet.id,
+                passagerId,
+                prixParPersonne: cotisation,
+                statut: 'confirmee',
+              },
+            });
+          }
+          trajetsCrees += 1;
+        }
+      }
+
+      // --- Demande ---
+      {
+        const poi = commune.pois[Math.floor(alea() * commune.pois.length)];
+        const heure = creneau(
+          alea() < 0.35 ? 0 : 1,
+          6 + Math.floor(alea() * 13),
+          alea() < 0.5 ? 0 : 30,
+        );
+        const cotisation = 500 + Math.floor(alea() * 31) * 50;
+        const places = 2 + Math.floor(alea() * 3);
         // Le createur compte dans le quota : au plus places-1 accompagnants.
-        const participants = Math.min(accompagnants, places - 1);
+        const participants = Math.min(
+          Math.floor(alea() * places),
+          places - 1,
+        );
         const quotaAtteint = participants + 1 >= places;
 
-        const demande = await prisma.demande.create({
-          data: {
-            createurId,
-            universiteId: universite.id,
-            communeId: commune.id,
-            quartierId: poi.quartierId,
-            heure,
-            placesRecherchees: places,
-            cotisation,
-            statut: quotaAtteint ? 'quota_atteint' : 'ouverte',
-            poiId: quotaAtteint ? poi.id : undefined,
-          },
-        });
+        const createurId = await compteDemo(prisma, cache, avecDossier, base + 6, false);
+        if (!createursOccupes.has(createurId)) {
+          const demande = await prisma.demande.create({
+            data: {
+              createurId,
+              universiteId: universite.id,
+              communeId: commune.id,
+              quartierId: poi.quartierId,
+              heure,
+              placesRecherchees: places,
+              cotisation,
+              statut: quotaAtteint ? 'quota_atteint' : 'ouverte',
+              poiId: quotaAtteint ? poi.id : undefined,
+            },
+          });
+          createursOccupes.add(createurId);
 
-        await prisma.participation.create({
-          data: {
-            demandeId: demande.id,
-            userId: createurId,
-            positionLat: poi.latitude,
-            positionLng: poi.longitude,
-            statut: 'confirmee',
-          },
-        });
-
-        for (let p = 0; p < participants; p++) {
-          const participantId = await compteDemo(prisma, base + 1 + p, false);
           await prisma.participation.create({
             data: {
               demandeId: demande.id,
-              userId: participantId,
+              userId: createurId,
               positionLat: poi.latitude,
               positionLng: poi.longitude,
               statut: 'confirmee',
             },
           });
+
+          for (let p = 0; p < participants; p++) {
+            const participantId = await compteDemo(
+              prisma,
+              cache,
+              avecDossier,
+              base + 7 + p,
+              false,
+            );
+            await prisma.participation.create({
+              data: {
+                demandeId: demande.id,
+                userId: participantId,
+                positionLat: poi.latitude,
+                positionLng: poi.longitude,
+                statut: 'confirmee',
+              },
+            });
+          }
+          demandesCreees += 1;
         }
-        demandesCreees += 1;
       }
     }
   }
 
   console.log(
-    `Seed volume : ${trajetsCrees} trajets et ${demandesCreees} demandes sur ${universites.length} universites.`,
+    `Seed volume : ${trajetsCrees} trajets et ${demandesCreees} demandes, ` +
+      `${universites.length} universites x ${utilisables.length} communes.`,
   );
 }
