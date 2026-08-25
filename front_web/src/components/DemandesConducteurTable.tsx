@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { App, Button, Image, Modal, Space, Table } from 'antd';
+import { App, Button, Image, Input, Modal, Space, Table } from 'antd';
 import {
   getDocumentConducteurBlobUrl,
   listDemandesConducteur,
@@ -20,7 +20,14 @@ export default function DemandesConducteurTable() {
     null,
   );
   const [docsLoading, setDocsLoading] = useState(false);
+  // Refus motive : le serveur exige un motif d'au moins 10 caracteres, on le
+  // saisit donc dans une boite dediee plutot que de refuser en un clic.
+  const [refusId, setRefusId] = useState<string | null>(null);
+  const [motif, setMotif] = useState('');
   const { message } = App.useApp();
+
+  const MOTIF_MIN = 10;
+  const motifValide = motif.trim().length >= MOTIF_MIN;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,11 +86,14 @@ export default function DemandesConducteurTable() {
     }
   }
 
-  async function handleRefuser(id: string) {
-    setPendingId(id);
+  async function handleConfirmerRefus() {
+    if (refusId === null || !motifValide) return;
+    setPendingId(refusId);
     try {
-      await refuserDemandeConducteur(id);
-      message.success('Demande refusée');
+      await refuserDemandeConducteur(refusId, motif.trim());
+      message.success('Demande refusée, le motif a été envoyé au demandeur');
+      setRefusId(null);
+      setMotif('');
       await load();
     } catch {
       message.error('Impossible de refuser cette demande');
@@ -125,7 +135,10 @@ export default function DemandesConducteurTable() {
                 </Button>
                 <Button
                   loading={pendingId === record.id}
-                  onClick={() => void handleRefuser(record.id)}
+                  onClick={() => {
+                    setRefusId(record.id);
+                    setMotif('');
+                  }}
                 >
                   Refuser
                 </Button>
@@ -157,6 +170,38 @@ export default function DemandesConducteurTable() {
               <Image src={docsUrls.permis} width={180} />
             </div>
           </Space>
+        ) : null}
+      </Modal>
+
+      <Modal
+        title="Refuser la demande"
+        open={refusId !== null}
+        okText="Confirmer le refus"
+        cancelText="Annuler"
+        okButtonProps={{ danger: true, disabled: !motifValide }}
+        confirmLoading={pendingId !== null && pendingId === refusId}
+        onOk={() => void handleConfirmerRefus()}
+        onCancel={() => {
+          setRefusId(null);
+          setMotif('');
+        }}
+      >
+        <p>
+          Ce motif est envoyé au demandeur par notification et s'affiche dans
+          son profil. Indiquez ce qu'il doit corriger avant de resoumettre.
+        </p>
+        <Input.TextArea
+          rows={4}
+          maxLength={500}
+          showCount
+          value={motif}
+          onChange={(e) => setMotif(e.target.value)}
+          placeholder="Ex. : la photo du permis est floue, le numéro n'est pas lisible."
+        />
+        {!motifValide && motif.length > 0 ? (
+          <p style={{ color: '#cf1322', marginTop: 8 }}>
+            Le motif doit compter au moins {MOTIF_MIN} caractères.
+          </p>
         ) : null}
       </Modal>
     </>

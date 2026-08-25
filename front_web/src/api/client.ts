@@ -170,8 +170,13 @@ export async function validerDemandeConducteur(id: string): Promise<void> {
   await apiClient.patch(`/users/conducteurs/demandes/${id}/valider`);
 }
 
-export async function refuserDemandeConducteur(id: string): Promise<void> {
-  await apiClient.patch(`/users/conducteurs/demandes/${id}/refuser`);
+// Le motif est obligatoire cote serveur (RefuserDemandeConducteurDto) : un
+// refus muet laissait le demandeur resoumettre le meme dossier defaillant.
+export async function refuserDemandeConducteur(
+  id: string,
+  motif: string,
+): Promise<void> {
+  await apiClient.patch(`/users/conducteurs/demandes/${id}/refuser`, { motif });
 }
 
 // La route est proteges (JwtAuthGuard) -- un <img src> ou <a href> direct

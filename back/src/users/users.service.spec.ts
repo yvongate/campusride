@@ -253,7 +253,7 @@ describe('UsersService', () => {
 
       const result = await service.getConducteurStatus('user-1');
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ statut: null, motifRefus: null });
     });
 
     it('returns the status of the most recent request', async () => {
@@ -265,7 +265,34 @@ describe('UsersService', () => {
         where: { userId: 'user-1' },
         orderBy: { createdAt: 'desc' },
       });
-      expect(result).toBe('refuse');
+      expect(result.statut).toBe('refuse');
+    });
+
+    it('returns the refusal reason alongside a refused status', async () => {
+      findFirstConducteurMock.mockResolvedValueOnce({
+        statut: 'refuse',
+        motifRefus: 'La photo du permis est floue.',
+      });
+
+      const result = await service.getConducteurStatus('user-1');
+
+      expect(result).toEqual({
+        statut: 'refuse',
+        motifRefus: 'La photo du permis est floue.',
+      });
+    });
+
+    it('never exposes a reason on a validated request', async () => {
+      // Garde-fou : un dossier valide qui porterait encore le motif d'un
+      // refus anterieur ne doit pas le renvoyer au mobile.
+      findFirstConducteurMock.mockResolvedValueOnce({
+        statut: 'valide',
+        motifRefus: 'ancien motif',
+      });
+
+      const result = await service.getConducteurStatus('user-1');
+
+      expect(result).toEqual({ statut: 'valide', motifRefus: null });
     });
   });
 
@@ -479,7 +506,7 @@ describe('UsersService', () => {
       findUniqueConducteurMock.mockResolvedValueOnce(null);
 
       await expect(
-        service.refuserDemandeConducteur('doc-missing'),
+        service.refuserDemandeConducteur('doc-missing', 'Permis illisible.'),
       ).rejects.toThrow(NotFoundException);
       expect(updateConducteurMock).not.toHaveBeenCalled();
     });
@@ -491,9 +518,9 @@ describe('UsersService', () => {
         statut: 'refuse',
       });
 
-      await expect(service.refuserDemandeConducteur('doc-1')).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        service.refuserDemandeConducteur('doc-1', 'Permis illisible.'),
+      ).rejects.toThrow(ConflictException);
       expect(updateConducteurMock).not.toHaveBeenCalled();
     });
 
@@ -508,13 +535,40 @@ describe('UsersService', () => {
         statut: 'refuse',
       });
 
-      await service.refuserDemandeConducteur('doc-1');
+      await service.refuserDemandeConducteur('doc-1', 'Permis illisible.');
 
       expect(updateConducteurMock).toHaveBeenCalledWith({
         where: { id: 'doc-1' },
-        data: { statut: 'refuse' },
+        data: { statut: 'refuse', motifRefus: 'Permis illisible.' },
       });
       expect(updateUtilisateurMock).not.toHaveBeenCalled();
+    });
+
+    it('sends the refusal reason to the applicant', async () => {
+      findUniqueConducteurMock.mockResolvedValueOnce({
+        id: 'doc-1',
+        userId: 'user-1',
+        statut: 'en attente',
+      });
+      updateConducteurMock.mockResolvedValueOnce({
+        id: 'doc-1',
+        statut: 'refuse',
+        motifRefus: 'La photo du permis est floue.',
+      });
+
+      await service.refuserDemandeConducteur(
+        'doc-1',
+        'La photo du permis est floue.',
+      );
+
+      // Sans le motif dans la notification, le demandeur resoumet le meme
+      // dossier : c'est precisement ce que ce refus motive doit eviter.
+      expect(notificationsMock.envoyer).toHaveBeenCalledWith(
+        ['user-1'],
+        'Demande conducteur refusée',
+        'Motif : La photo du permis est floue.',
+        { type: 'compte' },
+      );
     });
   });
 

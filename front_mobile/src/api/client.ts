@@ -99,6 +99,9 @@ export interface Profile {
   universiteId: string | null;
   universite: { id: string; nom: string } | null;
   conducteurStatut: string | null;
+  // Renseigne uniquement quand conducteurStatut vaut "refuse" : explique au
+  // demandeur ce qu'il doit corriger avant de resoumettre.
+  conducteurMotifRefus: string | null;
   suspenduJusqua: string | null;
 }
 

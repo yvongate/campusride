@@ -151,6 +151,8 @@ export default function MesInformationsScreen({ navigation }: Props) {
   }
 
   const tag = statutTag(profile.conducteurStatut);
+  const motifRefus =
+    profile.conducteurStatut === 'refuse' ? profile.conducteurMotifRefus : null;
   const nomModifie = nom.trim() !== (profile.nom ?? '');
 
   return (
@@ -253,6 +255,9 @@ export default function MesInformationsScreen({ navigation }: Props) {
           <View style={styles.tagRow}>
             <Tag variant={tag.variant} label={tag.label} />
           </View>
+          {motifRefus ? (
+            <MutedText style={styles.motifRefus}>Motif : {motifRefus}</MutedText>
+          ) : null}
         </Field>
       </ScrollView>
     </View>
@@ -260,6 +265,9 @@ export default function MesInformationsScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  motifRefus: {
+    marginTop: 8,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,

@@ -23,6 +23,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { conducteurFilesStorage } from './conducteur-files.storage';
 import { CreateDemandeConducteurDto } from './dto/create-demande-conducteur.dto';
+import { RefuserDemandeConducteurDto } from './dto/refuser-demande-conducteur.dto';
 import { UpdateProfilDto } from './dto/update-profil.dto';
 import { UsersService } from './users.service';
 
@@ -58,7 +59,7 @@ export class UsersController {
     const user = await this.usersService.findByIdAvecUniversite(
       req.user.userId,
     );
-    const conducteurStatut = await this.usersService.getConducteurStatus(
+    const conducteur = await this.usersService.getConducteurStatus(
       req.user.userId,
     );
     return {
@@ -71,7 +72,8 @@ export class UsersController {
       nombreNotations: user.nombreNotations,
       universiteId: user.universiteId,
       universite: user.universite ? { id: user.universite.id, nom: user.universite.nom } : null,
-      conducteurStatut,
+      conducteurStatut: conducteur.statut,
+      conducteurMotifRefus: conducteur.motifRefus,
       suspenduJusqua: user.suspenduJusqua,
     };
   }
@@ -177,7 +179,10 @@ export class UsersController {
   @Patch('conducteurs/demandes/:id/refuser')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin')
-  async refuserDemandeConducteur(@Param('id') id: string) {
-    return this.usersService.refuserDemandeConducteur(id);
+  async refuserDemandeConducteur(
+    @Param('id') id: string,
+    @Body() dto: RefuserDemandeConducteurDto,
+  ) {
+    return this.usersService.refuserDemandeConducteur(id, dto.motif);
   }
 }

@@ -106,6 +106,9 @@ model DocumentsConducteur {
   photoVehicule     String?
   motBienvenue      String?
   statut            String      @default("en attente")
+  // Renseigne uniquement lors d'un refus : l'admin doit motiver sa decision
+  // pour que le demandeur sache quoi corriger avant de resoumettre.
+  motifRefus        String?
   createdAt         DateTime    @default(now())
 }
 

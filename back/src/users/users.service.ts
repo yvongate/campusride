@@ -91,12 +91,19 @@ export class UsersService {
     });
   }
 
-  async getConducteurStatus(userId: string): Promise<string | null> {
+  async getConducteurStatus(
+    userId: string,
+  ): Promise<{ statut: string | null; motifRefus: string | null }> {
     const latest = await this.prisma.documentsConducteur.findFirst({
       where: { userId },
       orderBy: { createdAt: 'desc' },
     });
-    return latest?.statut ?? null;
+    // Le motif n'a de sens que sur un refus : sur un dossier valide ou en
+    // attente il reste null, l'appelant n'a donc rien a filtrer.
+    return {
+      statut: latest?.statut ?? null,
+      motifRefus: latest?.statut === 'refuse' ? (latest.motifRefus ?? null) : null,
+    };
   }
 
   async createDemandeConducteur(
@@ -199,7 +206,7 @@ export class UsersService {
     return updatedDemande;
   }
 
-  async refuserDemandeConducteur(demandeId: string) {
+  async refuserDemandeConducteur(demandeId: string, motif: string) {
     const demande = await this.prisma.documentsConducteur.findUnique({
       where: { id: demandeId },
     });
@@ -212,13 +219,15 @@ export class UsersService {
 
     const refusee = await this.prisma.documentsConducteur.update({
       where: { id: demandeId },
-      data: { statut: 'refuse' },
+      data: { statut: 'refuse', motifRefus: motif },
     });
 
+    // Le motif part dans la notification : sans lui, le demandeur ne savait
+    // pas quoi corriger et resoumettait le meme dossier.
     await this.notifications.envoyer(
       [demande.userId],
       'Demande conducteur refusée',
-      "Ta demande n'a pas été acceptée. Tu peux en soumettre une nouvelle avec des documents plus lisibles.",
+      `Motif : ${motif}`,
       { type: 'compte' },
     );
 

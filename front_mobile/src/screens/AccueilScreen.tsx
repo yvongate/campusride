@@ -5,6 +5,7 @@ import {
   FlatList,
   Modal,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -174,6 +175,9 @@ export default function AccueilScreen({ navigation }: Props) {
   const [monId, setMonId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [conducteurStatut, setConducteurStatut] = useState<string | null>(null);
+  const [conducteurMotifRefus, setConducteurMotifRefus] = useState<string | null>(
+    null,
+  );
   const [demandesAAccepter, setDemandesAAccepter] = useState<DemandeDisponible[]>([]);
   const [chargementAAccepter, setChargementAAccepter] = useState(false);
   const [accepterPendingId, setAccepterPendingId] = useState<string | null>(null);
@@ -185,21 +189,37 @@ export default function AccueilScreen({ navigation }: Props) {
   // le bouton doit donc lui demander lequel plutot que d'en choisir un.
   const [menuCreationOuvert, setMenuCreationOuvert] = useState(false);
 
-  useEffect(() => {
-    getProfile()
-      .then((profile) => {
-        setDisplayName(
-          getDisplayName(profile.nom, profile.prenom, profile.telephone),
-        );
-        setUniversiteId(profile.universiteId);
-        setUniversiteNom(profile.universite?.nom ?? null);
-        setMonId(profile.id);
-        setRole(profile.role);
-        setConducteurStatut(profile.conducteurStatut);
-      })
-      .catch(() => undefined)
-      .finally(() => setProfileLoaded(true));
+  // Relu a chaque retour sur l'ecran, et non une seule fois au montage : le
+  // role et conducteurStatut changent hors de l'app, quand un administrateur
+  // valide un dossier. Sans cette relecture, un conducteur fraichement valide
+  // restait devant "vérification en cours" jusqu'a ce qu'il tue l'application.
+  const chargerProfil = useCallback(async () => {
+    try {
+      const profile = await getProfile();
+      setDisplayName(
+        getDisplayName(profile.nom, profile.prenom, profile.telephone),
+      );
+      setUniversiteId(profile.universiteId);
+      setUniversiteNom(profile.universite?.nom ?? null);
+      setMonId(profile.id);
+      setRole(profile.role);
+      setConducteurStatut(profile.conducteurStatut);
+      setConducteurMotifRefus(profile.conducteurMotifRefus);
+    } catch {
+      // Silencieux : l'ecran affiche deja son propre etat d'erreur pour le
+      // feed, et un profil non rafraichi n'empeche pas de consulter l'offre.
+    } finally {
+      setProfileLoaded(true);
+    }
   }, []);
+
+  useEffect(() => {
+    void chargerProfil();
+  }, [chargerProfil]);
+
+  useEffect(() => {
+    return navigation.addListener('focus', () => void chargerProfil());
+  }, [navigation, chargerProfil]);
 
   // Vue conducteur : les demandes de SA commune, chargees directement sur
   // l'accueil. Il n'a pas d'universite, donc aucun filtre dessus -- toutes
@@ -324,9 +344,10 @@ export default function AccueilScreen({ navigation }: Props) {
   }, [loadDemandes]);
 
   const refreshFeed = useCallback(() => {
+    void chargerProfil();
     void loadTrajets();
     void loadDemandes();
-  }, [loadTrajets, loadDemandes]);
+  }, [chargerProfil, loadTrajets, loadDemandes]);
 
   useRefreshOnForeground(refreshFeed);
 
@@ -872,36 +893,58 @@ export default function AccueilScreen({ navigation }: Props) {
         // lui promettre des demandes a accepter avant validation lui
         // annoncerait un acces qu'il n'a pas encore.
         <View style={[styles.body, conducteurStatut !== 'valide' && styles.bodyChauffeur]}>
-          {conducteurStatut === 'en attente' ? (
-            <MutedText style={styles.empty}>
-              Tes documents sont en cours de vérification. Dès qu'un
-              administrateur les valide, tu pourras publier des trajets et
-              accepter des demandes. Tu recevras une notification.
-            </MutedText>
-          ) : conducteurStatut === 'refuse' ? (
-            <>
-              <MutedText style={styles.empty}>
-                Ton dossier n'a pas été validé. Tu peux renvoyer des documents
-                plus lisibles pour être vérifié à nouveau.
-              </MutedText>
-              <Button
-                title="Renvoyer mes documents"
-                block
-                onPress={() => navigation.navigate('InscriptionConducteur')}
-              />
-            </>
-          ) : conducteurStatut !== 'valide' ? (
-            <>
-              <MutedText style={styles.empty}>
-                Pour commencer à conduire, envoie ton permis et le matricule de
-                ton véhicule. Un administrateur vérifie ton dossier sous 48h.
-              </MutedText>
-              <Button
-                title="Envoyer mes documents"
-                block
-                onPress={() => navigation.navigate('InscriptionConducteur')}
-              />
-            </>
+          {conducteurStatut !== 'valide' ? (
+            // Conteneur defilable meme quand le contenu tient a l'ecran : sans
+            // lui, un conducteur en attente de validation n'avait aucun geste
+            // pour verifier si son dossier venait d'etre accepte.
+            <ScrollView
+              contentContainerStyle={styles.bodyChauffeurContenu}
+              refreshControl={
+                <RefreshControl
+                  refreshing={false}
+                  onRefresh={() => void chargerProfil()}
+                  tintColor={colors.accent}
+                />
+              }
+            >
+              {conducteurStatut === 'en attente' ? (
+                <MutedText style={styles.empty}>
+                  Tes documents sont en cours de vérification. Dès qu'un
+                  administrateur les valide, tu pourras publier des trajets et
+                  accepter des demandes. Tu recevras une notification, et tu
+                  peux tirer cet écran vers le bas pour vérifier.
+                </MutedText>
+              ) : conducteurStatut === 'refuse' ? (
+                <>
+                  <MutedText style={styles.empty}>
+                    Ton dossier n'a pas été validé.
+                    {conducteurMotifRefus
+                      ? ` Motif : ${conducteurMotifRefus}`
+                      : ''}{' '}
+                    Tu peux renvoyer des documents corrigés pour être vérifié à
+                    nouveau.
+                  </MutedText>
+                  <Button
+                    title="Renvoyer mes documents"
+                    block
+                    onPress={() => navigation.navigate('InscriptionConducteur')}
+                  />
+                </>
+              ) : (
+                <>
+                  <MutedText style={styles.empty}>
+                    Pour commencer à conduire, envoie ton permis et le matricule
+                    de ton véhicule. Un administrateur vérifie ton dossier sous
+                    48h.
+                  </MutedText>
+                  <Button
+                    title="Envoyer mes documents"
+                    block
+                    onPress={() => navigation.navigate('InscriptionConducteur')}
+                  />
+                </>
+              )}
+            </ScrollView>
           ) : !communeId ? (
             <MutedText style={styles.empty}>
               Choisis ta commune pour voir les étudiants qui cherchent un
@@ -1152,6 +1195,10 @@ const styles = StyleSheet.create({
   },
   bodyChauffeur: {
     gap: 10,
+  },
+  bodyChauffeurContenu: {
+    gap: 10,
+    paddingBottom: 24,
   },
   count: {
     fontSize: 12.5,
