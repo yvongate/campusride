@@ -116,6 +116,20 @@ export class TrajetsService {
       );
     }
 
+    // Le role seul ne suffit pas : updateProfil le fait passer a "chauffeur"
+    // des la simple declaration d'intention, avant toute soumission de
+    // dossier -- et un refus (refuserDemandeConducteur) ne le retrograde
+    // jamais. Sans cette verification, un dossier refuse (ou jamais soumis)
+    // laissait quand meme publier un trajet.
+    const dossierValide = await this.prisma.documentsConducteur.findFirst({
+      where: { userId: conducteurId, statut: 'valide' },
+    });
+    if (!dossierValide) {
+      throw new ForbiddenException(
+        "Ton compte conducteur n'est pas encore validé.",
+      );
+    }
+
     const conflit = await this.prisma.trajet.findFirst({
       where: {
         conducteurId,
@@ -418,6 +432,24 @@ export class TrajetsService {
   }
 
   async demarrerTrajet(conducteurId: string, trajetId: string) {
+    const trajet = await this.prisma.trajet.findUnique({
+      where: { id: trajetId },
+    });
+    if (!trajet) {
+      throw new NotFoundException('Ce trajet est introuvable.');
+    }
+    if (trajet.conducteurId !== conducteurId) {
+      throw new ForbiddenException("Ce trajet ne t'appartient pas.");
+    }
+    const reservationsConfirmees = await this.prisma.reservation.count({
+      where: { trajetId, statut: 'confirmee' },
+    });
+    if (reservationsConfirmees < trajet.places) {
+      throw new ConflictException(
+        "Toutes les places doivent être réservées avant de démarrer le trajet.",
+      );
+    }
+
     return this.changerStatutTrajet(
       conducteurId,
       trajetId,
